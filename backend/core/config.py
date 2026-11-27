@@ -1,6 +1,12 @@
 import os
 from typing import List
-from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(backend_dir, ".env"))
+load_dotenv(os.path.join(backend_dir, "..", ".env"))
+load_dotenv()
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SmartScan 2026"
@@ -20,9 +26,10 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://localhost:4173"
     PORT: int = 8000
     
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=(os.path.join(backend_dir, ".env"), ".env"),
+        extra="ignore"
+    )
     
     @property
     def cors_origins(self) -> List[str]:
