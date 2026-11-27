@@ -2,6 +2,14 @@
 
 Continue building **SmartScan 2026** in this repository. Phase 1 is complete and verified (7/7 acceptance tests passing - see `docs/BUILD_PROMPT_PHASE1.md` and `docs/VERIFY_PHASE1.md`). Follow `docs/BUILD_PLAN.md`; Phase 1 rules still apply in full: same Supabase project, schema **`app2026`** on every table-touching client (backend AND seed), never touch the `public` schema or the old project, server-side money logic only, frontend Supabase client for auth only, clean error messages, small commits on `main`, push when done.
 
+## SELF-TEST RULE (mandatory - learned from a Phase 1 bug)
+
+API tests passing does NOT mean the app works. In Phase 1 every API test passed while the app showed every product as out of stock (the frontend checked a field the API never sends). Before you report Phase 2 complete, you MUST:
+1. Run the backend AND the frontend dev server.
+2. Click through every screen and flow yourself, as each role: customer login → store select → scan (manual entry is fine) → add to cart → checkout → pay → bill; staff login → exit verify + cash confirm; manager login → every new Phase 2 screen (scan-to-add, CSV import, unknown queue, dashboard, sticker print).
+3. Fix every bug you find and re-test that flow until it is clean.
+4. Only then run the acceptance tests below and report - with a line confirming the app was run and clicked through, not just the API tests.
+
 ## Build these (Phase 2 - retailer onboarding + dashboard + hardening)
 
 1. **Scan-to-add (manager):** manager scans a barcode (camera or manual entry), fills name, brand, category, price, MRP, stock, unit, and saves - the product is live instantly. `POST /manager/stores/{store_id}/products`. Duplicate `(store_id, barcode)` returns **409** with a clean message. Remember: a barcode is just an ID; all details live in our DB against `store_id + barcode`.
