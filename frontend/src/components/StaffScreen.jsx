@@ -71,7 +71,7 @@ export default function StaffScreen() {
     setManagerAlerted(false);
     try {
       const res = await api.verifyExitBill(cleaned);
-      setVerifyResult(res);
+      setVerifyResult({ ...res, status: res.result || res.status });
       if (showScanner) {
         closeScanner();
       }
@@ -91,7 +91,7 @@ export default function StaffScreen() {
     setManagerAlerted(false);
     try {
       await new Promise((r) => setTimeout(r, 800));
-      const target = verifyResult.order_id || verifyResult.bill_no;
+      const target = verifyResult.bill_no || verifyResult.order_id;
       const res = await api.rfidCheck(target, rfidExtraItem);
       setRfidResult(res);
     } catch (err) {
@@ -111,13 +111,13 @@ export default function StaffScreen() {
     if (!verifyResult?.order_id && !verifyResult?.bill_no) return;
     setMarkingUsed(true);
     try {
-      const target = verifyResult.order_id || verifyResult.bill_no;
+      const target = verifyResult.bill_no || verifyResult.order_id;
       await api.markBillUsed(target);
       setVerifyResult((prev) => ({
         ...prev,
-        status: 'ALREADY_USED',
+        status: 'USED_DONE',
         used_at: new Date().toISOString(),
-        message: 'Bill marked USED successfully.',
+        message: 'Exit approved - bill marked as USED.',
       }));
     } catch (err) {
       console.error('Failed to mark used:', err);
@@ -253,6 +253,17 @@ export default function StaffScreen() {
         {verifyResult && (
           <div className="bg-white rounded-card p-4 border border-surface-tint shadow-md space-y-4 animate-in fade-in zoom-in-95 duration-150">
             {/* Status Header */}
+            {verifyResult.status === 'USED_DONE' && (
+              <div className="flex items-center gap-2.5 p-3 bg-success/10 border border-success/30 rounded-card-sm text-success">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                <div className="leading-tight">
+                  <span className="font-extrabold text-xs tracking-wider uppercase">EXIT APPROVED</span>
+                  <p className="text-[11px] text-ink-muted mt-0.5">{verifyResult.message || 'Exit approved - bill marked as USED.'}</p>
+                  <p className="text-xs font-semibold text-success mt-1">Exit approved — bill marked as USED</p>
+                </div>
+              </div>
+            )}
+
             {verifyResult.status === 'VERIFIED' && (
               <div className="flex items-center gap-2.5 p-3 bg-success/10 border border-success/30 rounded-card-sm text-success">
                 <CheckCircle2 className="w-5 h-5 shrink-0" />
