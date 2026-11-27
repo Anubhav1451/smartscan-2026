@@ -178,7 +178,7 @@ export default function ManagerDashboard() {
         stock: sNum
       });
 
-      setStoreProducts(prev => prev.map(p => p.id === prod.id ? { ...p, ...updated, in_stock: updated.stock > 0 } : p));
+      setStoreProducts(prev => prev.map(p => p.id === prod.id ? { ...p, ...updated } : p));
       setEditingProductId(null);
       fetchDashboardData();
     } catch (err) {
@@ -194,10 +194,10 @@ export default function ManagerDashboard() {
       const idx = prev.findIndex(p => p.id === saved.id || p.barcode === saved.barcode);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = { ...saved, in_stock: saved.stock > 0 };
+        next[idx] = { ...saved };
         return next;
       } else {
-        return [{ ...saved, in_stock: saved.stock > 0 }, ...prev];
+        return [{ ...saved }, ...prev];
       }
     });
     setUnknownScans(prev => prev.filter(s => s.barcode !== saved.barcode));

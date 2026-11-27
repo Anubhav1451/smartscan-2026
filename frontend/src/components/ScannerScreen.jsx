@@ -127,7 +127,7 @@ export default function ScannerScreen({ onNavigate }) {
     setSearching(true);
     try {
       const product = await api.lookupProductByBarcode(selectedStore.id, cleaned);
-      if (product.stock <= 0 || !product.in_stock) {
+      if (product.stock <= 0) {
         setDetectionState({ type: 'OUT_OF_STOCK', product });
       } else {
         setDetectionState({ type: 'FOUND', product });
