@@ -20,6 +20,11 @@ Setup, in order:
 2. In the Supabase Dashboard: Settings → API → Exposed schemas → add `app2026`.
 3. The backend's Supabase client MUST be created with the schema set: `create_client(url, key, options=ClientOptions(schema="app2026"))`.
 
+Connection rules (important):
+- This is the SAME Supabase project as the old app - the `.env` values (SUPABASE_URL, both keys) are the existing project's values; take them from the old project's backend `.env` on this machine (ask the user if missing). Do NOT create a new Supabase project, and do NOT invent placeholder keys.
+- Every Supabase client that touches tables - the backend API code AND `seed.py` - must set schema `app2026`. Auth calls do not need a schema.
+- The frontend's Supabase client is for AUTH ONLY (login/session). All frontend data comes from the backend API - never query tables directly from the frontend (it would read the wrong schema).
+
 Supabase Auth issues JWTs; the backend verifies them via JWKS (ES256, legacy HS256 fallback) and resolves role + store server-side via `GET /auth/me` - never trust role/store sent by the client. The demo auth accounts already exist in this project (same emails as the seed list); seed.py looks them up by email through the Auth admin API and inserts their rows into `app2026.profiles` (create an auth user only if missing). All secrets come from `.env` (backend: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY; frontend: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL). No secret in code, ever.
 
 ## APIs to build
@@ -55,6 +60,7 @@ Manager: store shell with products list and dashboard placeholder (full dashboar
 
 ## Acceptance tests (run all, report numbers)
 
+0. Connection proof: `GET /stores` returns exactly the 3 seeded demo stores. If ~103 stores appear, the client is reading the old `public` schema - the schema setting is wrong; fix it before proceeding.
 1. Canonical cart at FreshMart (milk + bread + shampoo) totals exactly ₹317; mock pay issues a bill; exit verify = VERIFIED; verify again after use = ALREADY_USED; fake bill SS-99999 = INVALID
 2. Double checkout/pay of the same cart creates one order, one bill, stock drops once
 3. Bottle scan shows ₹499 at FreshMart and ₹549 at StyleHub
