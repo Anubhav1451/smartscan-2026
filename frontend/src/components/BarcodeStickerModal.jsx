@@ -14,19 +14,37 @@ export default function BarcodeStickerModal({
     if (!isOpen || !product || !product.barcode || !barcodeSvgRef.current) return;
 
     try {
-      JsBarcode(barcodeSvgRef.current, product.barcode, {
-        format: "CODE128",
-        width: 1.8,
-        height: 52,
-        displayValue: true,
-        fontSize: 13,
-        font: "monospace",
-        fontOptions: "bold",
-        textMargin: 3,
-        margin: 4,
-        background: "#ffffff",
-        lineColor: "#16130E"
-      });
+      const isEan13 = /^\d{13}$/.test(product.barcode);
+      try {
+        JsBarcode(barcodeSvgRef.current, product.barcode, {
+          format: isEan13 ? "EAN13" : "CODE128",
+          width: 1.8,
+          height: 52,
+          displayValue: true,
+          fontSize: 13,
+          font: "monospace",
+          fontOptions: "bold",
+          textMargin: 3,
+          margin: 4,
+          background: "#ffffff",
+          lineColor: "#16130E"
+        });
+      } catch (innerErr) {
+        // Fallback to CODE128 if EAN-13 fails (e.g. invalid check digit)
+        JsBarcode(barcodeSvgRef.current, product.barcode, {
+          format: "CODE128",
+          width: 1.8,
+          height: 52,
+          displayValue: true,
+          fontSize: 13,
+          font: "monospace",
+          fontOptions: "bold",
+          textMargin: 3,
+          margin: 4,
+          background: "#ffffff",
+          lineColor: "#16130E"
+        });
+      }
     } catch (err) {
       console.warn("JsBarcode rendering fallback:", err);
     }

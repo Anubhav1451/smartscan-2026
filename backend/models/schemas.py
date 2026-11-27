@@ -24,6 +24,67 @@ class ProductResponse(BaseModel):
     stock: int
     unit: Optional[str] = None
 
+class ProductCreateRequest(BaseModel):
+    barcode: str = Field(..., min_length=1, description="Barcode for the product")
+    name: str = Field(..., min_length=1, description="Product title / name")
+    brand: Optional[str] = None
+    category: Optional[str] = "General"
+    price: int = Field(..., ge=0, description="Price in whole INR")
+    mrp: Optional[int] = Field(None, ge=0)
+    stock: int = Field(..., ge=0, description="Available stock units")
+    unit: Optional[str] = None
+
+class ProductUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[int] = Field(None, ge=0)
+    mrp: Optional[int] = Field(None, ge=0)
+    stock: Optional[int] = Field(None, ge=0)
+    unit: Optional[str] = None
+
+# Bulk Import Models
+class ImportRowError(BaseModel):
+    row: int
+    barcode: Optional[str] = None
+    name: Optional[str] = None
+    reason: str
+
+class ImportPreviewResponse(BaseModel):
+    total_rows: int
+    valid_count: int
+    to_add_count: int
+    to_update_count: int
+    to_fail_count: int
+    to_add: List[Dict[str, Any]] = []
+    to_update: List[Dict[str, Any]] = []
+    failed: List[ImportRowError] = []
+
+class ImportExecuteResponse(BaseModel):
+    status: str = "ok"
+    added_count: int
+    updated_count: int
+    failed_count: int
+    errors: List[ImportRowError] = []
+
+# Unknown Scans Model
+class UnknownScanResponse(BaseModel):
+    id: str
+    store_id: str
+    barcode: str
+    count: int
+    first_seen_at: str
+    last_seen_at: str
+
+# Demo Reset Model
+class ResetDemoResponse(BaseModel):
+    status: str = "ok"
+    message: str
+    canonical_bill: str = "SS-20481"
+    stores_count: int = 3
+    products_count: int = 16
+    orders_count: int = 40
+
 # Scan Models
 class ScanRequest(BaseModel):
     store_id: str

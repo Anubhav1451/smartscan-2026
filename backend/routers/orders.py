@@ -1,11 +1,13 @@
 import logging
 import random
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status, Depends
 from core.db import get_supabase
 from core.auth import get_current_user, get_optional_user, UserProfile, require_staff_or_manager
 from core.stock import decrement_order_stock_atomic
+from core.rate_limit import check_checkout_rate_limit
 from models.schemas import (
     CheckoutRequest,
     CheckoutResponse,
@@ -27,7 +29,8 @@ def generate_bill_no() -> str:
 @router.post("/checkout", response_model=CheckoutResponse)
 def checkout(
     req: CheckoutRequest,
-    user: Optional[UserProfile] = Depends(get_optional_user)
+    user: Optional[UserProfile] = Depends(get_optional_user),
+    _rl: None = Depends(check_checkout_rate_limit)
 ):
     """
     Validates items and available stock against the store's catalogue.
@@ -337,11 +340,27 @@ def get_my_orders(user: UserProfile = Depends(get_current_user)):
 @router.get("/orders/{order_id}")
 @router.get("/bills/{order_id}")
 def get_order_by_id(order_id: str):
-    """Fetch order details by order_id or bill_no."""
+    """Fetch order details by order_id or bill_no safely avoiding UUID syntax errors."""
     sb = get_supabase()
-    res = sb.table("orders").select(
+    clean_id = order_id.strip()
+    
+    is_uuid = False
+    try:
+        uuid.UUID(clean_id)
+        is_uuid = True
+    except (ValueError, TypeError):
+        is_uuid = False
+
+    query = sb.table("orders").select(
         "id, bill_no, store_id, customer_id, total, payment_method, payment_status, status, created_at, paid_at, stores(id, name, code, area, address)"
-    ).or_(f"id.eq.{order_id},bill_no.eq.{order_id}").execute()
+    )
+
+    if is_uuid:
+        res = query.eq("id", clean_id).execute()
+        if not res.data:
+            res = query.eq("bill_no", clean_id).execute()
+    else:
+        res = query.eq("bill_no", clean_id).execute()
     
     if not res.data:
         raise HTTPException(

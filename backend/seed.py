@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import random
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 import httpx
@@ -78,8 +79,26 @@ def create_or_get_user(client: httpx.Client, email: str, display_name: str) -> s
         
     raise RuntimeError(f"Failed to create or retrieve auth user {email}: HTTP {res.status_code}")
 
-def seed_database():
-    print(f"--- [SmartScan 2026 Seed] Starting seed for schema: {SCHEMA} ---")
+SEED_BARCODES = {
+    "8901262010015",  # Milk
+    "8901063142217",  # Bread
+    "4902430752108",  # Shampoo
+    "8901234567890",  # Bottle (FM & SH)
+    "8904043901005",  # Tata Salt
+    "8901764012296",  # Coca-Cola (stock 0)
+    "8901058852309",  # Maggi
+    "8906007281223",  # Fortune Oil
+    "8907263011002",  # T-Shirt
+    "8907263012016",  # Jeans
+    "8907263013020",  # Backpack
+    "8901719101037",  # Parle-G
+    "8901396387002",  # Dettol
+    "8901030383322",  # Red Label Tea
+    "8901030023013",  # Surf Excel
+}
+
+def seed_database(preserve_custom_products: bool = False):
+    print(f"--- [SmartScan 2026 Seed] Starting seed for schema: {SCHEMA} (preserve_custom_products={preserve_custom_products}) ---")
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env")
 
@@ -92,46 +111,58 @@ def seed_database():
         sb.table("order_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
         sb.table("orders").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
         sb.table("unknown_scans").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("products").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("stores").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("retailers").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        if not preserve_custom_products:
+            sb.table("products").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+            sb.table("profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+            sb.table("stores").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+            sb.table("retailers").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
     except Exception as e:
         print(f"Warning during table cleanup: {e}")
 
     # 2. Retailer & Stores
-    print("2/5 Creating Retailer and 3 Stores (FreshMart, StyleHub, DailyNeeds)...")
-    ret_res = sb.table("retailers").insert({"name": "SmartScan Demo Retail"}).execute()
-    retailer_id = ret_res.data[0]["id"]
+    print("2/5 Ensuring Retailer and 3 Stores (FreshMart, StyleHub, DailyNeeds)...")
+    existing_stores = sb.table("stores").select("id, code").execute()
+    stores_map = {}
+    if existing_stores.data and len(existing_stores.data) >= 3:
+        stores_map = {s["code"]: s["id"] for s in existing_stores.data}
+    
+    if not stores_map or "FM" not in stores_map or "SH" not in stores_map or "DN" not in stores_map:
+        ret_res = sb.table("retailers").select("id").limit(1).execute()
+        if ret_res.data:
+            retailer_id = ret_res.data[0]["id"]
+        else:
+            ret_ins = sb.table("retailers").insert({"name": "SmartScan Demo Retail"}).execute()
+            retailer_id = ret_ins.data[0]["id"]
 
-    stores_data = [
-        {
-            "retailer_id": retailer_id,
-            "name": "FreshMart",
-            "code": "FM",
-            "area": "Rajpur Road, Dehradun",
-            "address": "14 Rajpur Road, Near Clock Tower, Dehradun",
-            "is_active": True
-        },
-        {
-            "retailer_id": retailer_id,
-            "name": "StyleHub",
-            "code": "SH",
-            "area": "Rajpur Road, Dehradun",
-            "address": "48 Rajpur Road, Dehradun",
-            "is_active": True
-        },
-        {
-            "retailer_id": retailer_id,
-            "name": "DailyNeeds",
-            "code": "DN",
-            "area": "Subhash Nagar, Dehradun",
-            "address": "9 Subhash Nagar, Dehradun",
-            "is_active": True
-        }
-    ]
-    stores_res = sb.table("stores").insert(stores_data).execute()
-    stores_map = {s["code"]: s["id"] for s in stores_res.data}
+        stores_data = [
+            {
+                "retailer_id": retailer_id,
+                "name": "FreshMart",
+                "code": "FM",
+                "area": "Rajpur Road, Dehradun",
+                "address": "14 Rajpur Road, Near Clock Tower, Dehradun",
+                "is_active": True
+            },
+            {
+                "retailer_id": retailer_id,
+                "name": "StyleHub",
+                "code": "SH",
+                "area": "Rajpur Road, Dehradun",
+                "address": "48 Rajpur Road, Dehradun",
+                "is_active": True
+            },
+            {
+                "retailer_id": retailer_id,
+                "name": "DailyNeeds",
+                "code": "DN",
+                "area": "Subhash Nagar, Dehradun",
+                "address": "9 Subhash Nagar, Dehradun",
+                "is_active": True
+            }
+        ]
+        stores_res = sb.table("stores").upsert(stores_data, on_conflict="code").execute()
+        stores_map = {s["code"]: s["id"] for s in stores_res.data}
+        
     fm_id = stores_map["FM"]
     sh_id = stores_map["SH"]
     dn_id = stores_map["DN"]
@@ -321,28 +352,38 @@ def seed_database():
             "unit": "1kg"
         }
     ]
-    prods_res = sb.table("products").insert(products_data).execute()
-    print(f"Inserted {len(prods_res.data)} products successfully.")
+    prods_res = sb.table("products").upsert(products_data, on_conflict="store_id,barcode").execute()
+    print(f"Upserted {len(prods_res.data)} products successfully.")
 
     # 4. Auth Users and Profiles in app2026.profiles
-    print("4/5 Provisioning demo Auth users & app2026.profiles...")
-    with httpx.Client(timeout=30.0) as http_client:
-        demo_cust_id = create_or_get_user(http_client, "demo@smartscan.app", "Demo Customer")
-        anubhav_cust_id = create_or_get_user(http_client, "anubhav@smartscan.app", "Anubhav Kumar")
-        staff_id = create_or_get_user(http_client, "staff@smartscan.app", "FreshMart Exit Staff")
-        manager_id = create_or_get_user(http_client, "manager@smartscan.app", "FreshMart Store Manager")
-        manager_sh_id = create_or_get_user(http_client, "manager-sh@smartscan.app", "StyleHub Store Manager")
+    print("4/5 Ensuring demo Auth users & app2026.profiles...")
+    existing_profiles = sb.table("profiles").select("id, email, role, store_id").execute().data or []
+    prof_by_email = {p.get("email"): p for p in existing_profiles if p.get("email")}
 
-    profiles_data = [
-        {"id": demo_cust_id, "email": "demo@smartscan.app", "role": "customer", "store_id": None},
-        {"id": anubhav_cust_id, "email": "anubhav@smartscan.app", "role": "customer", "store_id": None},
-        {"id": staff_id, "email": "staff@smartscan.app", "role": "exit_staff", "store_id": fm_id},
-        {"id": manager_id, "email": "manager@smartscan.app", "role": "manager", "store_id": fm_id},
-        {"id": manager_sh_id, "email": "manager-sh@smartscan.app", "role": "manager", "store_id": sh_id},
-    ]
-    for p in profiles_data:
-        sb.table("profiles").upsert(p).execute()
-    print("Provisioned 5 profiles in app2026.profiles.")
+    if len(prof_by_email) >= 5 and "demo@smartscan.app" in prof_by_email and "staff@smartscan.app" in prof_by_email:
+        demo_cust_id = prof_by_email["demo@smartscan.app"]["id"]
+        anubhav_cust_id = prof_by_email["anubhav@smartscan.app"]["id"]
+        staff_id = prof_by_email["staff@smartscan.app"]["id"]
+        manager_id = prof_by_email["manager@smartscan.app"]["id"]
+        manager_sh_id = prof_by_email["manager-sh@smartscan.app"]["id"]
+    else:
+        with httpx.Client(timeout=30.0) as http_client:
+            demo_cust_id = create_or_get_user(http_client, "demo@smartscan.app", "Demo Customer")
+            anubhav_cust_id = create_or_get_user(http_client, "anubhav@smartscan.app", "Anubhav Kumar")
+            staff_id = create_or_get_user(http_client, "staff@smartscan.app", "FreshMart Exit Staff")
+            manager_id = create_or_get_user(http_client, "manager@smartscan.app", "FreshMart Store Manager")
+            manager_sh_id = create_or_get_user(http_client, "manager-sh@smartscan.app", "StyleHub Store Manager")
+
+        profiles_data = [
+            {"id": demo_cust_id, "email": "demo@smartscan.app", "role": "customer", "store_id": None},
+            {"id": anubhav_cust_id, "email": "anubhav@smartscan.app", "role": "customer", "store_id": None},
+            {"id": staff_id, "email": "staff@smartscan.app", "role": "exit_staff", "store_id": fm_id},
+            {"id": manager_id, "email": "manager@smartscan.app", "role": "manager", "store_id": fm_id},
+            {"id": manager_sh_id, "email": "manager-sh@smartscan.app", "role": "manager", "store_id": sh_id},
+        ]
+        for p in profiles_data:
+            sb.table("profiles").upsert(p).execute()
+        print("Provisioned 5 profiles in app2026.profiles.")
 
     # 5. 40 Past Orders for Historical KPIs
     print("5/5 Generating 40 past orders across stores...")
@@ -365,7 +406,9 @@ def seed_database():
         {"name": "Britannia Whole Wheat Bread", "barcode": "8901063142217", "price": 45, "qty": 1},
         {"name": "Head & Shoulders Shampoo 340ml", "barcode": "4902430752108", "price": 210, "qty": 1}
     ]
+    canonical_order_id = str(uuid.uuid4())
     canonical_order = {
+        "id": canonical_order_id,
         "store_id": fm_id,
         "customer_id": demo_cust_id,
         "bill_no": "SS-20481",
@@ -376,28 +419,23 @@ def seed_database():
         "created_at": (now - timedelta(hours=2)).isoformat(),
         "paid_at": (now - timedelta(hours=2)).isoformat()
     }
-    can_res = sb.table("orders").insert(canonical_order).execute()
-    can_order_id = can_res.data[0]["id"]
-    for it in canonical_items:
-        sb.table("order_items").insert({
-            "order_id": can_order_id,
-            "name": it["name"],
-            "barcode": it["barcode"],
-            "price": it["price"],
-            "qty": it["qty"]
-        }).execute()
-    sb.table("exit_verifications").insert({
-        "order_id": can_order_id,
-        "bill_no": "SS-20481",
-        "result": "VERIFIED",
-        "verified_by": staff_id,
-        "created_at": (now - timedelta(hours=1, minutes=55)).isoformat()
-    }).execute()
 
     # Generate remaining 39 orders over past 7 days
     orders_to_create = 39
     customer_ids = [demo_cust_id, anubhav_cust_id]
     
+    orders_batch = [canonical_order]
+    items_batch = [
+        {
+            "order_id": canonical_order_id,
+            "name": it["name"],
+            "barcode": it["barcode"],
+            "price": it["price"],
+            "qty": it["qty"]
+        }
+        for it in canonical_items
+    ]
+
     for i in range(orders_to_create):
         store_choice = random.choices([fm_id, sh_id, dn_id], weights=[0.55, 0.25, 0.20])[0]
         avail_prods = all_store_prods[store_choice]
@@ -407,8 +445,10 @@ def seed_database():
         bill_num = f"SS-{random.randint(30000, 89999)}"
         days_ago = random.uniform(0.1, 6.9)
         order_time = (now - timedelta(days=days_ago)).isoformat()
-        
-        ord_res = sb.table("orders").insert({
+        oid = str(uuid.uuid4())
+
+        orders_batch.append({
+            "id": oid,
             "store_id": store_choice,
             "customer_id": random.choice(customer_ids),
             "bill_no": bill_num,
@@ -418,18 +458,30 @@ def seed_database():
             "status": "PAID",
             "created_at": order_time,
             "paid_at": order_time
-        }).execute()
-        
-        ord_id = ord_res.data[0]["id"]
+        })
+
         for p in picked_prods:
-            sb.table("order_items").insert({
-                "order_id": ord_id,
+            items_batch.append({
+                "order_id": oid,
                 "product_id": p["id"],
                 "barcode": p["barcode"],
                 "name": p["name"],
                 "price": p["price"],
                 "qty": 1
-            }).execute()
+            })
+
+    # Bulk insert all 40 orders and their items in 2 fast queries
+    sb.table("orders").insert(orders_batch).execute()
+    sb.table("order_items").insert(items_batch).execute()
+
+    # Verification for canonical order
+    sb.table("exit_verifications").insert({
+        "order_id": canonical_order_id,
+        "bill_no": "SS-20481",
+        "result": "VERIFIED",
+        "verified_by": staff_id,
+        "created_at": (now - timedelta(hours=1, minutes=55)).isoformat()
+    }).execute()
 
     print("--- [SmartScan 2026 Seed] Completed successfully! ---")
     print("Summary:")

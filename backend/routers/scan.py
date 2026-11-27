@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from core.db import get_supabase
+from core.rate_limit import check_scan_rate_limit
 from models.schemas import ScanRequest, ProductResponse
 
 router = APIRouter(tags=["Scan"])
 
 @router.post("/scan", response_model=ProductResponse)
-def scan_product(req: ScanRequest):
+def scan_product(req: ScanRequest, _rl: None = Depends(check_scan_rate_limit)):
     """
     Looks up a product within the given store by barcode.
     On a miss, logs the barcode to the store's unknown_scans queue and returns 404.
