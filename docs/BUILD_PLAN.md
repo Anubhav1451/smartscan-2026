@@ -42,9 +42,9 @@ Multi-retailer Scan-and-Go: the customer selects the store in-app (no store QR),
 - Store list: **search + area chips**, demo stores pinned first, count line ("103 stores - 14 areas - Dehradun")
 - Final rehearsal, Q&A prep, backup screenshots/video of the full demo flow
 
-## Data model (PostgreSQL on Supabase)
+## Data model (PostgreSQL on Supabase, schema `app2026`)
 
-`retailers, stores, products, profiles, orders, order_items, exit_verifications, unknown_scans`
+`retailers, stores, products, profiles, orders, order_items, exit_verifications, unknown_scans` - all inside the new schema `app2026` (SQL in `docs/SCHEMA_SQL.md`).
 RLS on; service-role key stays server-side only, never in the frontend or in code.
 
 ## Demo data
@@ -55,7 +55,7 @@ RLS on; service-role key stays server-side only, never in the frontend or in cod
 
 ## Infrastructure
 
-- **Supabase**: existing project - schema and demo data already provisioned. Connection values live only in `.env` files, never in code or in this repo.
+- **Supabase**: existing project, but a fresh schema `app2026` for this build - new tables, new seed; the old app's `public` data stays untouched (decided at the venue, 27 Nov). Demo auth accounts already exist in the project and are reused. Connection values live only in `.env` files, never in code or in this repo.
 - **Backend**: new Render service from this repo (Phase 1 may run locally first).
 - **Frontend**: new Vercel project from this repo.
 

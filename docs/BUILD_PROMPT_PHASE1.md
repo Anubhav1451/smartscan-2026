@@ -11,10 +11,16 @@ Build **SmartScan 2026**, a multi-retailer Scan-and-Go checkout web app, in this
 
 SmartScan Green: deep green `#14532D`, dark green `#0C3B21`, cream `#F6F2E7`, ink `#16130E`, success `#16A34A`. Red only for alerts. Logo: shopping bag with a check mark inside. Tagline: "Scan. Pay. Walk Out."
 
-## Database + auth (Supabase, already provisioned)
+## Database + auth (Supabase - same project, NEW schema)
 
-Tables: `retailers, stores, products, profiles, orders, order_items, exit_verifications, unknown_scans`.
-Supabase Auth issues JWTs; the backend verifies them via JWKS (ES256, legacy HS256 fallback) and resolves role + store server-side via `GET /auth/me` - never trust role/store sent by the client. All secrets come from `.env` (backend: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY; frontend: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL). No secret in code, ever.
+Use the EXISTING Supabase project, but all new tables live in a fresh schema named **`app2026`**. The old app's `public` schema data must NOT be read, changed or deleted - this build is fully separate inside the same project.
+
+Setup, in order:
+1. Run `docs/SCHEMA_SQL.md` once in the Supabase SQL Editor (creates schema `app2026` + all tables: retailers, stores, products, profiles, orders, order_items, exit_verifications, unknown_scans).
+2. In the Supabase Dashboard: Settings → API → Exposed schemas → add `app2026`.
+3. The backend's Supabase client MUST be created with the schema set: `create_client(url, key, options=ClientOptions(schema="app2026"))`.
+
+Supabase Auth issues JWTs; the backend verifies them via JWKS (ES256, legacy HS256 fallback) and resolves role + store server-side via `GET /auth/me` - never trust role/store sent by the client. The demo auth accounts already exist in this project (same emails as the seed list); seed.py looks them up by email through the Auth admin API and inserts their rows into `app2026.profiles` (create an auth user only if missing). All secrets come from `.env` (backend: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY; frontend: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL). No secret in code, ever.
 
 ## APIs to build
 
