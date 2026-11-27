@@ -12,6 +12,10 @@ Executes all 7 acceptance checks from docs/BUILD_PROMPT_PHASE1.md:
 
 import sys
 import os
+
+# Ensure backend directory is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from starlette.testclient import TestClient
 from main import app
 from core.db import get_supabase
