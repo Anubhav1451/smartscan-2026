@@ -1,5 +1,4 @@
 import React from 'react';
-import { Wifi, Battery, Signal } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function PhoneFrame({ children, currentScreen, onNavigate }) {
@@ -86,21 +85,6 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
 
       {/* Full-screen app viewport */}
       <div className="flex-1 w-full bg-cream flex flex-col overflow-hidden relative">
-        
-        {/* iOS-Style Status Bar */}
-        <div className="px-6 pt-3 pb-1 flex items-center justify-between text-ink text-[12px] font-semibold bg-cream z-30 shrink-0">
-          <span>9:41</span>
-          
-          {/* Dynamic Capsule Notch (visible on desktop mockup) */}
-          <div className="hidden sm:block w-24 h-4 bg-neutral-800 rounded-full"></div>
-
-          {/* Status Icons */}
-          <div className="flex items-center space-x-1.5 text-ink">
-            <Signal className="w-3.5 h-3.5" />
-            <Wifi className="w-3.5 h-3.5" />
-            <Battery className="w-4 h-4" />
-          </div>
-        </div>
 
         {/* Screen View Container */}
         <div className="flex-1 overflow-hidden relative flex flex-col">
