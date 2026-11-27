@@ -147,6 +147,7 @@ def checkout(
     )
 
 @router.post("/orders/{order_id}/pay/mock", response_model=MockPayResponse)
+@router.post("/orders/{order_id}/mock-pay", response_model=MockPayResponse)
 def mock_pay(order_id: str):
     """
     Flips the order to PAID and issues its bill (bill_no SS-xxxxx, QR token).
@@ -261,6 +262,7 @@ def cash_pay(order_id: str):
     )
 
 @router.post("/orders/{order_id}/confirm-cash", response_model=CashConfirmResponse)
+@router.post("/orders/{order_id}/cash-confirm", response_model=CashConfirmResponse)
 def confirm_cash_payment(
     order_id: str,
     user: Optional[UserProfile] = Depends(get_optional_user)
@@ -333,6 +335,7 @@ def get_my_orders(user: UserProfile = Depends(get_current_user)):
     return orders
 
 @router.get("/orders/{order_id}")
+@router.get("/bills/{order_id}")
 def get_order_by_id(order_id: str):
     """Fetch order details by order_id or bill_no."""
     sb = get_supabase()

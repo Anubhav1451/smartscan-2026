@@ -84,7 +84,8 @@ class CashConfirmResponse(BaseModel):
 
 # Exit Verification Models
 class ExitVerifyRequest(BaseModel):
-    bill_no: str
+    bill_no: Optional[str] = None
+    bill_id: Optional[str] = None
 
 class ExitVerifyResponse(BaseModel):
     result: str  # VERIFIED, ALREADY_USED, INVALID, UNPAID
@@ -98,7 +99,8 @@ class ExitVerifyResponse(BaseModel):
     message: Optional[str] = None
 
 class ExitUseRequest(BaseModel):
-    bill_no: str
+    bill_no: Optional[str] = None
+    bill_id: Optional[str] = None
 
 class ExitUseResponse(BaseModel):
     status: str

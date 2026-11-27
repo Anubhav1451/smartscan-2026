@@ -29,7 +29,12 @@ def verify_exit_bill(
     Records every verification attempt in app2026.exit_verifications.
     """
     sb = get_supabase()
-    bill_no = req.bill_no.strip().upper()
+    bill_no = (req.bill_no or req.bill_id or "").strip().upper()
+    if not bill_no:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "bill_no or bill_id is required", "code": "MISSING_BILL_NO"}
+        )
     verified_by = user.id if user else None
     
     # 1. Look up order by bill_no
@@ -117,7 +122,12 @@ def mark_bill_used(
 ):
     """Marks a verified bill as USED upon shopper exit."""
     sb = get_supabase()
-    bill_no = req.bill_no.strip().upper()
+    bill_no = (req.bill_no or req.bill_id or "").strip().upper()
+    if not bill_no:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "bill_no or bill_id is required", "code": "MISSING_BILL_NO"}
+        )
     verified_by = user.id if user else None
     
     res = sb.table("orders").select("id, status, payment_status").eq("bill_no", bill_no).execute()
