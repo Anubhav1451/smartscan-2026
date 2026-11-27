@@ -8,19 +8,19 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
   const isManager = profile?.role === 'manager';
 
   return (
-    <div className="min-h-screen bg-cream sm:bg-neutral-900 sm:py-6 sm:px-4 flex flex-col items-center justify-center font-sans antialiased">
+    <div className="h-screen w-full bg-cream sm:px-3 sm:pt-2 flex flex-col font-sans antialiased">
       {/* Top Quick Switcher Bar for reviewers */}
-      <div className="w-full max-w-[420px] mb-2 hidden sm:flex items-center justify-between text-xs bg-white/10 backdrop-blur-md rounded-full p-1 border border-white/10">
+      <div className="w-full mb-2 hidden sm:flex items-center justify-between text-xs bg-white rounded-full p-1 border border-primary/15 shadow-sm shrink-0">
         {!user ? (
-          <span className="w-full text-center py-1 font-semibold text-white/80">
+          <span className="w-full text-center py-1 font-semibold text-ink/70">
             SmartScan · Phase 2 Live Prototype (Sign in below)
           </span>
         ) : isStaff ? (
-          <span className="w-full text-center py-1 font-semibold text-white/80">
+          <span className="w-full text-center py-1 font-semibold text-ink/70">
             Exit Staff Mode · {profile?.store?.name || 'FreshMart'}
           </span>
         ) : isManager ? (
-          <span className="w-full text-center py-1 font-semibold text-white/80">
+          <span className="w-full text-center py-1 font-semibold text-ink/70">
             Manager Mode · {profile?.store?.name || 'FreshMart'}
           </span>
         ) : (
@@ -31,7 +31,7 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
               className={`flex-1 py-1 rounded-full font-semibold transition-all ${
                 currentScreen === 'home' 
                   ? 'bg-primary text-white shadow-xs' 
-                  : 'text-white/70 hover:text-white'
+                  : 'text-ink/60 hover:text-ink'
               }`}
             >
               Home
@@ -42,7 +42,7 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
               className={`flex-1 py-1 rounded-full font-semibold transition-all ${
                 currentScreen === 'store' 
                   ? 'bg-primary text-white shadow-xs' 
-                  : 'text-white/70 hover:text-white'
+                  : 'text-ink/60 hover:text-ink'
               }`}
             >
               Store
@@ -53,7 +53,7 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
               className={`flex-1 py-1 rounded-full font-semibold transition-all ${
                 currentScreen === 'scanner' 
                   ? 'bg-primary text-white shadow-xs' 
-                  : 'text-white/70 hover:text-white'
+                  : 'text-ink/60 hover:text-ink'
               }`}
             >
               Scan
@@ -64,7 +64,7 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
               className={`flex-1 py-1 rounded-full font-semibold transition-all ${
                 currentScreen === 'cart' 
                   ? 'bg-primary text-white shadow-xs' 
-                  : 'text-white/70 hover:text-white'
+                  : 'text-ink/60 hover:text-ink'
               }`}
             >
               Cart
@@ -75,7 +75,7 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
               className={`flex-1 py-1 rounded-full font-semibold transition-all ${
                 currentScreen === 'orders' 
                   ? 'bg-primary text-white shadow-xs' 
-                  : 'text-white/70 hover:text-white'
+                  : 'text-ink/60 hover:text-ink'
               }`}
             >
               Orders
@@ -84,8 +84,8 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
         )}
       </div>
 
-      {/* Device Viewport (~390x844 mobile viewport) */}
-      <div className="w-full sm:max-w-[400px] h-screen sm:h-[844px] bg-cream sm:rounded-[42px] sm:shadow-2xl sm:border-[8px] sm:border-neutral-800 flex flex-col overflow-hidden relative">
+      {/* Full-screen app viewport */}
+      <div className="flex-1 w-full bg-cream flex flex-col overflow-hidden relative">
         
         {/* iOS-Style Status Bar */}
         <div className="px-6 pt-3 pb-1 flex items-center justify-between text-ink text-[12px] font-semibold bg-cream z-30 shrink-0">
@@ -108,10 +108,6 @@ export default function PhoneFrame({ children, currentScreen, onNavigate }) {
         </div>
       </div>
       
-      {/* Design System Reference Tagline */}
-      <div className="mt-3 text-center text-white/50 text-xs hidden sm:block">
-        Design G: SmartScan Green System · Mobile Viewport (~390×844)
-      </div>
     </div>
   );
 }
