@@ -23,7 +23,7 @@ def do_scan_lookup(store_id: str, barcode: str):
     sb = get_supabase()
     
     # Check if product exists in this store
-    res = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit").eq("store_id", store_id).eq("barcode", barcode).execute()
+    res = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit, gst_rate").eq("store_id", store_id).eq("barcode", barcode).execute()
     
     if res.data and len(res.data) > 0:
         return res.data[0]

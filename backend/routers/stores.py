@@ -39,7 +39,7 @@ def list_store_products(
 ):
     """List products for a specific store with search support."""
     sb = get_supabase()
-    query = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit").eq("store_id", store_id)
+    query = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit, gst_rate").eq("store_id", store_id)
     if search and search.strip():
         s = search.strip()
         query = query.or_(f"name.ilike.%{s}%,barcode.ilike.%{s}%,category.ilike.%{s}%")

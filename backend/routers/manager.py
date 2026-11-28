@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query, UploadFile
 
 from core.db import get_supabase
 from core.auth import get_current_user, get_optional_user, UserProfile, require_manager
+from core.gst import default_gst_rate, compute_gst_breakup, VALID_GST_RATES
 from models.schemas import (
     ProductResponse,
     ProductCreateRequest,
@@ -16,7 +17,9 @@ from models.schemas import (
     ImportExecuteResponse,
     ImportRowError,
     UnknownScanResponse,
-    ResetDemoResponse
+    ResetDemoResponse,
+    GSTSummaryResponse,
+    ManagerOrderListItem
 )
 import seed
 
@@ -51,7 +54,7 @@ def get_manager_store_products(
     """Retrieve store catalogue with search support and manager isolation check."""
     verify_manager_store_access(user, store_id)
     sb = get_supabase()
-    query = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit").eq("store_id", store_id)
+    query = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit, gst_rate").eq("store_id", store_id)
     
     if search and search.strip():
         s = search.strip()
@@ -75,7 +78,7 @@ def manager_barcode_lookup(
     clean_barcode = barcode.strip()
     
     # 1. Check current store
-    cur = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit").eq("store_id", store_id).eq("barcode", clean_barcode).execute()
+    cur = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit, gst_rate").eq("store_id", store_id).eq("barcode", clean_barcode).execute()
     if cur.data and len(cur.data) > 0:
         return {
             "status": "EXISTS_CURRENT_STORE",
@@ -83,7 +86,7 @@ def manager_barcode_lookup(
         }
         
     # 2. Check other stores
-    other = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit").neq("store_id", store_id).eq("barcode", clean_barcode).limit(1).execute()
+    other = sb.table("products").select("id, store_id, barcode, name, brand, category, price, mrp, stock, unit, gst_rate").neq("store_id", store_id).eq("barcode", clean_barcode).limit(1).execute()
     if other.data and len(other.data) > 0:
         return {
             "status": "EXISTS_OTHER_STORE",
@@ -151,7 +154,17 @@ def add_store_product(
             detail={"error": f"Product with barcode '{barcode}' already exists in this store", "code": "DUPLICATE_PRODUCT"}
         )
         
-    # 3. Insert product
+    # 3. Determine GST Rate & Insert product
+    gst_rate = req.gst_rate
+    if gst_rate is None:
+        gst_rate = default_gst_rate(req.category, req.name, req.price)
+    else:
+        if gst_rate not in VALID_GST_RATES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": f"Invalid GST rate {gst_rate}. Allowed: {sorted(list(VALID_GST_RATES))}", "code": "INVALID_GST_RATE"}
+            )
+
     insert_data = {
         "store_id": store_id,
         "barcode": barcode,
@@ -160,6 +173,7 @@ def add_store_product(
         "category": req.category.strip() if req.category else "General",
         "price": req.price,
         "mrp": req.mrp if req.mrp is not None else req.price,
+        "gst_rate": gst_rate,
         "stock": req.stock,
         "unit": req.unit.strip() if req.unit else "1 pc",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -224,6 +238,21 @@ def update_store_product(
     if req.unit is not None:
         updates["unit"] = req.unit.strip() if req.unit else "1 pc"
         
+    if req.gst_rate is not None:
+        if req.gst_rate not in VALID_GST_RATES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": f"Invalid GST rate {req.gst_rate}. Allowed: {sorted(list(VALID_GST_RATES))}", "code": "INVALID_GST_RATE"}
+            )
+        updates["gst_rate"] = int(req.gst_rate)
+    elif req.price is not None:
+        # Check clothing category 2500 rule when price changes and gst_rate is omitted
+        cur_prod = sb.table("products").select("category, name").eq("id", product_id).execute()
+        if cur_prod.data:
+            cat = (cur_prod.data[0].get("category") or "").strip().lower()
+            if cat in ("clothing", "footwear", "apparel"):
+                updates["gst_rate"] = 5 if req.price <= 2500 else 18
+        
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         up_res = sb.table("products").update(updates).eq("id", product_id).eq("store_id", store_id).execute()
@@ -245,9 +274,9 @@ def download_import_template(
     """Download standard CSV template for bulk product import."""
     verify_manager_store_access(user, store_id)
     csv_content = (
-        "barcode,name,brand,category,price,mrp,stock,unit\n"
-        "8901234567890,Sample Product,Sample Brand,General,199,249,20,1 pc\n"
-        "8909876543210,Another Item,Brand X,Snacks,50,60,100,200g\n"
+        "barcode,name,brand,category,price,mrp,stock,unit,gst_rate\n"
+        "8901234567890,Sample Product,Sample Brand,General,199,249,20,1 pc,5\n"
+        "8909876543210,Another Item,Brand X,Snacks,50,60,100,200g,5\n"
     )
     return Response(
         content=csv_content,
@@ -321,6 +350,19 @@ def parse_and_validate_csv(csv_text: str, store_id: str) -> Dict[str, Any]:
                 mrp = int(mrp_str)
             except Exception:
                 mrp = price
+
+        gst_rate_str = (r.get("gst_rate") or "").strip()
+        if gst_rate_str:
+            try:
+                gst_rate = int(gst_rate_str)
+                if gst_rate not in VALID_GST_RATES:
+                    failed.append(ImportRowError(row=row_num, barcode=barcode, name=name, reason=f"Invalid GST rate '{gst_rate_str}'. Allowed rates: 0, 5, 12, 18, 28"))
+                    continue
+            except (ValueError, TypeError):
+                failed.append(ImportRowError(row=row_num, barcode=barcode, name=name, reason=f"Invalid GST rate '{gst_rate_str}'. Allowed rates: 0, 5, 12, 18, 28"))
+                continue
+        else:
+            gst_rate = default_gst_rate(category, name, price)
                 
         # Duplicate within same file check
         if barcode in seen_barcodes:
@@ -337,6 +379,7 @@ def parse_and_validate_csv(csv_text: str, store_id: str) -> Dict[str, Any]:
             "category": category,
             "price": price,
             "mrp": mrp or price,
+            "gst_rate": gst_rate,
             "stock": stock,
             "unit": unit
         })
@@ -345,7 +388,7 @@ def parse_and_validate_csv(csv_text: str, store_id: str) -> Dict[str, Any]:
     if valid_candidates:
         sb = get_supabase()
         candidate_barcodes = [c["barcode"] for c in valid_candidates]
-        existing_res = sb.table("products").select("id, barcode, name, price, stock").eq("store_id", store_id).in_("barcode", candidate_barcodes).execute()
+        existing_res = sb.table("products").select("id, barcode, name, price, stock, gst_rate").eq("store_id", store_id).in_("barcode", candidate_barcodes).execute()
         existing_map = {p["barcode"]: p for p in (existing_res.data or [])}
         
         for c in valid_candidates:
@@ -362,6 +405,7 @@ def parse_and_validate_csv(csv_text: str, store_id: str) -> Dict[str, Any]:
                     "old_price": ex.get("price"),
                     "new_stock": c["stock"],
                     "old_stock": ex.get("stock"),
+                    "gst_rate": c["gst_rate"],
                     "mrp": c["mrp"],
                     "unit": c["unit"]
                 })
@@ -374,6 +418,7 @@ def parse_and_validate_csv(csv_text: str, store_id: str) -> Dict[str, Any]:
                     "category": c["category"],
                     "price": c["price"],
                     "mrp": c["mrp"],
+                    "gst_rate": c["gst_rate"],
                     "stock": c["stock"],
                     "unit": c["unit"]
                 })
@@ -451,6 +496,7 @@ async def execute_csv_import(
             "category": c["category"],
             "price": c["price"],
             "mrp": c["mrp"],
+            "gst_rate": c["gst_rate"],
             "stock": c["stock"],
             "unit": c["unit"],
             "updated_at": now_iso
@@ -746,4 +792,174 @@ def reset_demo_data(user: Optional[UserProfile] = Depends(get_optional_user)):
         stores_count=s_count,
         products_count=p_count,
         orders_count=o_count
+    )
+
+# --------------------------------------------------------------------------
+# 8. Manager Orders & Digital Receipts (Stage B)
+# --------------------------------------------------------------------------
+@router.get("/orders", response_model=List[ManagerOrderListItem])
+def get_manager_orders(
+    store_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    user: UserProfile = Depends(get_current_user)
+):
+    """Returns recent bills for the manager's store."""
+    target_store_id = store_id or user.store_id
+    if not target_store_id:
+        raise HTTPException(status_code=400, detail="Store ID required")
+    verify_manager_store_access(user, target_store_id)
+    sb = get_supabase()
+    
+    res = sb.table("orders").select("id, bill_no, total, payment_status, status, customer_mobile, created_at").eq("store_id", target_store_id).order("created_at", desc=True).limit(limit).execute()
+    orders = res.data or []
+    if not orders:
+        return []
+        
+    order_ids = [o["id"] for o in orders]
+    items_res = sb.table("order_items").select("order_id, qty").in_("order_id", order_ids).execute()
+    items_by_order = defaultdict(list)
+    for it in (items_res.data or []):
+        items_by_order[it["order_id"]].append(it)
+        
+    out = []
+    for o in orders:
+        its = items_by_order.get(o["id"], [])
+        tot_qty = sum(it.get("qty", 1) for it in its)
+        items_count = len(its)
+        created_dt = o.get("created_at") or ""
+        out.append(ManagerOrderListItem(
+            order_id=o["id"],
+            bill_no=o.get("bill_no"),
+            time=created_dt,
+            created_at=created_dt,
+            item_count=tot_qty,
+            items_count=items_count,
+            total=o.get("total", 0),
+            payment_status=o.get("payment_status", "PENDING"),
+            status=o.get("status", "PENDING"),
+            customer_mobile=o.get("customer_mobile")
+        ))
+    return out
+
+@router.get("/orders/{bill_no}")
+def get_manager_order_detail(
+    bill_no: str,
+    user: UserProfile = Depends(get_current_user)
+):
+    """Returns full bill detail with GST breakup. Enforces manager store isolation."""
+    clean_id = bill_no.strip()
+    sb = get_supabase()
+    
+    import uuid
+    is_uuid = False
+    try:
+        uuid.UUID(clean_id)
+        is_uuid = True
+    except (ValueError, TypeError):
+        is_uuid = False
+        
+    query = sb.table("orders").select(
+        "id, bill_no, store_id, customer_id, total, payment_method, payment_status, status, created_at, paid_at, customer_mobile, stores(id, name, code, area, address)"
+    )
+    if is_uuid:
+        res = query.eq("id", clean_id).execute()
+        if not res.data:
+            res = query.eq("bill_no", clean_id).execute()
+    else:
+        res = query.eq("bill_no", clean_id).execute()
+        
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Order not found", "code": "ORDER_NOT_FOUND"}
+        )
+        
+    order = res.data[0]
+    
+    # Manager Store Isolation check: 403 on other store's bill
+    if user.role == "manager" and user.store_id and str(order["store_id"]) != str(user.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Access forbidden: you can only view orders for your assigned store", "code": "STORE_ISOLATION_FORBIDDEN"}
+        )
+        
+    items_res = sb.table("order_items").select("id, product_id, barcode, name, price, qty, gst_rate").eq("order_id", order["id"]).execute()
+    items = items_res.data or []
+    
+    prod_ids = [it["product_id"] for it in items if it.get("product_id")]
+    prod_map = {}
+    if prod_ids:
+        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
+        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
+        
+    for it in items:
+        if it.get("gst_rate") is None:
+            it["gst_rate"] = 5
+        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
+        
+    breakup = compute_gst_breakup(items)
+    item_count = sum(it.get("qty", 1) for it in items)
+    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items)
+    discount = max(0, mrp_total - order["total"])
+    
+    order["items"] = items
+    order["item_count"] = item_count
+    order["mrp_total"] = mrp_total
+    order["discount"] = discount
+    order["gst_breakup"] = breakup["breakup_rows"]
+    order["gst_totals"] = breakup["totals"]
+    return order
+
+# --------------------------------------------------------------------------
+# 9. Manager GST Summary (Stage B)
+# --------------------------------------------------------------------------
+@router.get("/gst-summary", response_model=GSTSummaryResponse)
+def get_manager_gst_summary(
+    period: str = Query("today", regex="^(today|month)$"),
+    store_id: Optional[str] = Query(None),
+    user: UserProfile = Depends(get_current_user)
+):
+    """
+    Returns aggregated GST return view over PAID/USED orders for the manager's store.
+    Period can be 'today' or 'month'.
+    """
+    target_store_id = store_id or user.store_id
+    if not target_store_id:
+        raise HTTPException(status_code=400, detail="Store ID required")
+    verify_manager_store_access(user, target_store_id)
+    sb = get_supabase()
+    
+    now = datetime.now(timezone.utc)
+    if period == "today":
+        start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+    start_iso = start_time.isoformat()
+    
+    orders_res = sb.table("orders").select("id, total, payment_status, status, created_at").eq("store_id", target_store_id).gte("created_at", start_iso).execute()
+    all_period_orders = orders_res.data or []
+    paid_orders = [o for o in all_period_orders if o.get("payment_status") == "PAID" or o.get("status") in ("PAID", "USED")]
+    
+    order_ids = [o["id"] for o in paid_orders]
+    total_sales = sum(o.get("total", 0) for o in paid_orders)
+    
+    items = []
+    if order_ids:
+        chunk_size = 50
+        for i in range(0, len(order_ids), chunk_size):
+            chunk = order_ids[i:i + chunk_size]
+            it_res = sb.table("order_items").select("name, price, qty, gst_rate").in_("order_id", chunk).execute()
+            items.extend(it_res.data or [])
+            
+    breakup = compute_gst_breakup(items)
+    
+    return GSTSummaryResponse(
+        period=period,
+        store_id=target_store_id,
+        orders_count=len(paid_orders),
+        total_sales=total_sales,
+        slabs=breakup["slabs"],
+        totals=breakup["totals"],
+        breakup_rows=breakup["breakup_rows"]
     )

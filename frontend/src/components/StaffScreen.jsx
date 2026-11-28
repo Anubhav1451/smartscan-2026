@@ -319,10 +319,28 @@ export default function StaffScreen() {
                   <span className="text-ink-muted">Bill Number</span>
                   <span className="font-mono font-bold">{verifyResult.bill_no}</span>
                 </div>
+                {verifyResult.customer_mobile && (
+                  <div className="flex justify-between items-center text-ink">
+                    <span className="text-ink-muted">Customer Mobile</span>
+                    <span className="font-mono font-semibold">+91 {verifyResult.customer_mobile}</span>
+                  </div>
+                )}
+                {verifyResult.item_count !== undefined && (
+                  <div className="flex justify-between items-center text-ink">
+                    <span className="text-ink-muted">Item Quantity</span>
+                    <span className="font-semibold">{verifyResult.item_count} items</span>
+                  </div>
+                )}
                 {verifyResult.total !== undefined && (
                   <div className="flex justify-between items-center text-ink">
-                    <span className="text-ink-muted">Billed Total</span>
+                    <span className="text-ink-muted">Billed Total (Incl. GST)</span>
                     <span className="font-extrabold text-primary">₹{verifyResult.total}</span>
+                  </div>
+                )}
+                {verifyResult.discount !== undefined && verifyResult.discount > 0 && (
+                  <div className="flex justify-between items-center text-emerald-800">
+                    <span>Discount Applied</span>
+                    <span className="font-bold">-₹{verifyResult.discount}</span>
                   </div>
                 )}
                 {verifyResult.customer_name && (
@@ -344,6 +362,9 @@ export default function StaffScreen() {
                       <div className="flex items-center gap-1.5 truncate">
                         <Check className="w-3.5 h-3.5 text-success shrink-0" />
                         <span className="truncate">{it.name_snapshot || it.name}</span>
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded font-semibold shrink-0">
+                          GST {it.gst_rate ?? 5}%
+                        </span>
                       </div>
                       <span className="font-semibold text-ink-muted shrink-0 ml-2">×{it.qty}</span>
                     </div>

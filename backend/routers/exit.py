@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from core.db import get_supabase
 from core.auth import get_optional_user, UserProfile
+from core.gst import compute_gst_breakup
 from models.schemas import (
     ExitVerifyRequest,
     ExitVerifyResponse,
@@ -39,7 +40,7 @@ def verify_exit_bill(
     
     # 1. Look up order by bill_no
     res = sb.table("orders").select(
-        "id, bill_no, store_id, total, payment_status, status, paid_at, stores(id, name, code, area)"
+        "id, bill_no, store_id, total, payment_status, status, paid_at, customer_mobile, stores(id, name, code, area)"
     ).eq("bill_no", bill_no).execute()
     
     if not res.data or len(res.data) == 0:
@@ -100,7 +101,23 @@ def verify_exit_bill(
         "created_at": datetime.now(timezone.utc).isoformat()
     }).execute()
     
-    items_res = sb.table("order_items").select("barcode, name, price, qty").eq("order_id", order_id).execute()
+    items_res = sb.table("order_items").select("product_id, barcode, name, price, qty, gst_rate").eq("order_id", order_id).execute()
+    items = items_res.data or []
+    prod_ids = [it["product_id"] for it in items if it.get("product_id")]
+    prod_map = {}
+    if prod_ids:
+        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
+        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
+
+    for it in items:
+        if it.get("gst_rate") is None:
+            it["gst_rate"] = 5
+        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
+
+    breakup = compute_gst_breakup(items)
+    item_count = sum(it.get("qty", 1) for it in items)
+    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items)
+    discount = max(0, mrp_total - order["total"])
     store_info = order.get("stores") or {}
     
     return ExitVerifyResponse(
@@ -111,7 +128,13 @@ def verify_exit_bill(
         store_code=store_info.get("code"),
         total=order["total"],
         paid_at=order.get("paid_at"),
-        items=items_res.data or [],
+        customer_mobile=order.get("customer_mobile"),
+        items=items,
+        item_count=item_count,
+        mrp_total=mrp_total,
+        discount=discount,
+        gst_breakup=breakup["breakup_rows"],
+        gst_totals=breakup["totals"],
         message="Valid paid bill verified. Clear for exit."
     )
 

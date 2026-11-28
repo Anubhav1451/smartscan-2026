@@ -17,12 +17,25 @@ export default function CartScreen({ onNavigate }) {
   const { selectedStore, items, updateQty, removeFromCart, clearCart, cartTotal, cartCount } = useCart();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [customerMobile, setCustomerMobile] = useState(() => localStorage.getItem('smartscan_customer_mobile') || '');
 
   const storeName = selectedStore?.name || 'FreshMart';
 
   const handleProceedToPay = async () => {
     if (!selectedStore?.id || items.length === 0) return;
     setError('');
+
+    let mobileToSend = customerMobile.trim();
+    if (mobileToSend) {
+      if (!/^[6-9]\d{9}$/.test(mobileToSend)) {
+        setError('Please enter a valid 10-digit Indian mobile number starting with 6-9 (or leave blank to skip).');
+        return;
+      }
+      localStorage.setItem('smartscan_customer_mobile', mobileToSend);
+    } else {
+      mobileToSend = null;
+    }
+
     setLoading(true);
 
     try {
@@ -31,6 +44,7 @@ export default function CartScreen({ onNavigate }) {
         store_id: selectedStore.id,
         items: items.map((it) => ({ barcode: it.barcode, qty: it.qty })),
         payment_method: 'UPI_MOCK',
+        customer_mobile: mobileToSend,
       };
 
       const res = await api.checkout(payload);
@@ -41,6 +55,7 @@ export default function CartScreen({ onNavigate }) {
         total: res.total,
         storeId: res.store_id,
         items: res.items,
+        customerMobile: res.customer_mobile,
       });
     } catch (err) {
       console.error('Checkout failed:', err);
@@ -181,6 +196,46 @@ export default function CartScreen({ onNavigate }) {
               <ScanLine className="w-3.5 h-3.5" />
               <span>Scan More Items</span>
             </button>
+
+            {/* Customer Mobile for Digital Receipt */}
+            <div className="bg-white rounded-card p-3.5 border border-surface-tint shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="customer-mobile" className="font-bold text-xs text-ink flex items-center gap-1.5">
+                  <span>Customer Mobile</span>
+                  <span className="text-[10px] font-normal text-ink-muted">(Optional)</span>
+                </label>
+                {customerMobile && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerMobile('')}
+                    className="text-[10px] text-ink-muted hover:text-alert font-medium"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <span className="absolute left-3 top-2.5 text-xs text-ink-muted font-medium">+91</span>
+                <input
+                  id="customer-mobile"
+                  type="tel"
+                  maxLength={10}
+                  placeholder="e.g. 9876543210 (for GST invoice)"
+                  value={customerMobile}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setCustomerMobile(val);
+                    if (val.length === 10) {
+                      localStorage.setItem('smartscan_customer_mobile', val);
+                    }
+                  }}
+                  className="w-full pl-11 pr-3 py-2 bg-cream/50 border border-surface-tint rounded-lg text-xs font-mono font-medium text-ink placeholder:text-ink-muted/50 focus:outline-none focus:border-primary focus:bg-white"
+                />
+              </div>
+              <p className="text-[10px] text-ink-muted leading-tight">
+                Zudio-style SMS & GST tax invoice will be linked to this number.
+              </p>
+            </div>
 
             {/* Bill Summary */}
             <div className="bg-white rounded-card p-4 border border-surface-tint shadow-xs space-y-2.5">

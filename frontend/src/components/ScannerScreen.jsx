@@ -271,12 +271,16 @@ export default function ScannerScreen({ onNavigate }) {
                   <h4 className="font-bold text-xs text-ink">
                     {detectionState.product.name}
                   </h4>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-primary font-extrabold text-sm">
                       ₹{detectionState.product.price}
                     </p>
+                    <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/60 font-semibold px-2 py-0.5 rounded-md">
+                      GST {detectionState.product.gst_rate ?? 5}%
+                    </span>
                     <span className="text-[10px] text-ink-muted">· Stock: {detectionState.product.stock}</span>
                   </div>
+                  <p className="text-[10px] text-ink-muted/80">Price inclusive of all taxes</p>
                 </div>
               </div>
 

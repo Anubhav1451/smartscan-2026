@@ -8,6 +8,7 @@ from core.db import get_supabase
 from core.auth import get_current_user, get_optional_user, UserProfile, require_staff_or_manager
 from core.stock import decrement_order_stock_atomic
 from core.rate_limit import check_checkout_rate_limit
+from core.gst import compute_gst_breakup, default_gst_rate
 from models.schemas import (
     CheckoutRequest,
     CheckoutResponse,
@@ -62,7 +63,7 @@ def checkout(
     # 2. Fetch products for this store
     barcodes = [item.barcode for item in req.items]
     prod_res = sb.table("products").select(
-        "id, store_id, barcode, name, price, stock"
+        "id, store_id, barcode, name, category, price, stock, gst_rate, mrp"
     ).eq("store_id", req.store_id).in_("barcode", barcodes).execute()
     
     prods_by_barcode = {p["barcode"]: p for p in (prod_res.data or [])}
@@ -93,11 +94,19 @@ def checkout(
             
         line_total = prod["price"] * item.qty
         grand_total += line_total
+        gst_r = prod.get("gst_rate")
+        if gst_r is None:
+            gst_r = default_gst_rate(prod.get("category"), prod["name"], prod["price"])
+        gst_r = int(gst_r)
+        mrp_val = prod.get("mrp") or prod["price"]
+
         validated_items.append({
             "product_id": prod["id"],
             "barcode": prod["barcode"],
             "name": prod["name"],
             "price": prod["price"],
+            "mrp": mrp_val,
+            "gst_rate": gst_r,
             "qty": item.qty,
             "line_total": line_total
         })
@@ -108,6 +117,7 @@ def checkout(
     order_data = {
         "store_id": req.store_id,
         "customer_id": customer_id,
+        "customer_mobile": req.customer_mobile,
         "total": grand_total,
         "payment_status": "PENDING",
         "status": "PENDING",
@@ -131,24 +141,35 @@ def checkout(
             "barcode": it["barcode"],
             "name": it["name"],
             "price": it["price"],
-            "qty": it["qty"]
+            "qty": it["qty"],
+            "gst_rate": it["gst_rate"]
         }
         for it in validated_items
     ]
     sb.table("order_items").insert(order_item_rows).execute()
     
+    item_count = sum(it["qty"] for it in validated_items)
+    mrp_total = sum(it["mrp"] * it["qty"] for it in validated_items)
+    discount = max(0, mrp_total - grand_total)
+
     return CheckoutResponse(
         order_id=order_id,
         store_id=req.store_id,
         total=grand_total,
         status="PENDING",
         payment_status="PENDING",
+        customer_mobile=req.customer_mobile,
+        item_count=item_count,
+        mrp_total=mrp_total,
+        discount=discount,
         items=[
             OrderItemResponse(
                 product_id=it["product_id"],
                 barcode=it["barcode"],
                 name=it["name"],
                 price=it["price"],
+                mrp=it["mrp"],
+                gst_rate=it["gst_rate"],
                 qty=it["qty"],
                 line_total=it["line_total"]
             ) for it in validated_items
@@ -165,7 +186,7 @@ def mock_pay(order_id: str):
     sb = get_supabase()
     
     # 1. Fetch order
-    res = sb.table("orders").select("id, bill_no, store_id, customer_id, total, payment_method, payment_status, status, paid_at").eq("id", order_id).execute()
+    res = sb.table("orders").select("id, bill_no, store_id, customer_id, customer_mobile, total, payment_method, payment_status, status, paid_at").eq("id", order_id).execute()
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -176,8 +197,25 @@ def mock_pay(order_id: str):
     store_name = store_info.data[0]["name"] if store_info.data else None
     
     # Fetch order items
-    items_res = sb.table("order_items").select("product_id, barcode, name, price, qty").eq("order_id", order_id).execute()
+    items_res = sb.table("order_items").select("product_id, barcode, name, price, qty, gst_rate").eq("order_id", order_id).execute()
     items_data = items_res.data or []
+
+    prod_ids = [it["product_id"] for it in items_data if it.get("product_id")]
+    prod_map = {}
+    if prod_ids:
+        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
+        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
+
+    for it in items_data:
+        if it.get("gst_rate") is None:
+            it["gst_rate"] = 5
+        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
+
+    breakup = compute_gst_breakup(items_data)
+    item_count = sum(it.get("qty", 1) for it in items_data)
+    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items_data)
+    discount = max(0, mrp_total - order["total"])
+
     order_items_resp = [
         OrderItemResponse(
             product_id=it["product_id"],
@@ -185,6 +223,8 @@ def mock_pay(order_id: str):
             name=it["name"],
             price=it["price"],
             qty=it["qty"],
+            mrp=it.get("mrp"),
+            gst_rate=it.get("gst_rate", 5),
             line_total=it["price"] * it["qty"]
         ) for it in items_data
     ]
@@ -201,6 +241,12 @@ def mock_pay(order_id: str):
             store_id=order["store_id"],
             store_name=store_name,
             paid_at=order.get("paid_at") or datetime.now(timezone.utc).isoformat(),
+            customer_mobile=order.get("customer_mobile"),
+            item_count=item_count,
+            mrp_total=mrp_total,
+            discount=discount,
+            gst_breakup=breakup["breakup_rows"],
+            gst_totals=breakup["totals"],
             items=order_items_resp
         )
         
@@ -239,6 +285,12 @@ def mock_pay(order_id: str):
         store_id=updated["store_id"],
         store_name=store_name,
         paid_at=updated["paid_at"],
+        customer_mobile=order.get("customer_mobile"),
+        item_count=item_count,
+        mrp_total=mrp_total,
+        discount=discount,
+        gst_breakup=breakup["breakup_rows"],
+        gst_totals=breakup["totals"],
         items=order_items_resp
     )
 
@@ -365,7 +417,7 @@ def get_order_by_id(order_id: str):
         is_uuid = False
 
     query = sb.table("orders").select(
-        "id, bill_no, store_id, customer_id, total, payment_method, payment_status, status, created_at, paid_at, stores(id, name, code, area, address)"
+        "id, bill_no, store_id, customer_id, customer_mobile, total, payment_method, payment_status, status, created_at, paid_at, stores(id, name, code, area, address)"
     )
 
     if is_uuid:
@@ -381,6 +433,28 @@ def get_order_by_id(order_id: str):
             detail={"error": "Order not found", "code": "ORDER_NOT_FOUND"}
         )
     order = res.data[0]
-    items_res = sb.table("order_items").select("id, product_id, barcode, name, price, qty").eq("order_id", order["id"]).execute()
-    order["items"] = items_res.data or []
+    items_res = sb.table("order_items").select("id, product_id, barcode, name, price, qty, gst_rate").eq("order_id", order["id"]).execute()
+    items = items_res.data or []
+    prod_ids = [it["product_id"] for it in items if it.get("product_id")]
+    prod_map = {}
+    if prod_ids:
+        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
+        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
+
+    for it in items:
+        if it.get("gst_rate") is None:
+            it["gst_rate"] = 5
+        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
+
+    breakup = compute_gst_breakup(items)
+    item_count = sum(it.get("qty", 1) for it in items)
+    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items)
+    discount = max(0, mrp_total - order["total"])
+
+    order["items"] = items
+    order["item_count"] = item_count
+    order["mrp_total"] = mrp_total
+    order["discount"] = discount
+    order["gst_breakup"] = breakup["breakup_rows"]
+    order["gst_totals"] = breakup["totals"]
     return order
