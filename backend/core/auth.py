@@ -58,6 +58,71 @@ def verify_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+def ensure_profile(user_id: str, email: Optional[str] = None) -> UserProfile:
+    """
+    Ensures a profile exists in app2026.profiles:
+    1. Looks up profile by user_id. If found, returns it without alteration.
+    2. Looks up profile by email. If found, preserves existing role (manager, exit_staff)
+       and links auth user_id if needed. NEVER overwrites manager/staff role.
+    3. If neither found, provisions a default 'customer' profile (store_id=None).
+    """
+    sb = get_supabase()
+    
+    # 1. Query app2026.profiles server-side by user_id
+    res = sb.table("profiles").select("id, email, role, store_id").eq("id", user_id).execute()
+    
+    if res.data and len(res.data) > 0:
+        row = res.data[0]
+        return UserProfile(
+            id=row["id"],
+            email=row.get("email") or email,
+            role=row.get("role", "customer"),
+            store_id=row.get("store_id")
+        )
+    
+    # 2. Check if profile exists by email (e.g. pre-seeded manager/staff or existing user)
+    if email:
+        email_res = sb.table("profiles").select("id, email, role, store_id").eq("email", email).execute()
+        if email_res.data and len(email_res.data) > 0:
+            row = email_res.data[0]
+            stored_role = row.get("role", "customer")
+            stored_store_id = row.get("store_id")
+            
+            # If id differs, link profile id to auth user id while preserving role & store
+            if row["id"] != user_id:
+                try:
+                    sb.table("profiles").update({"id": user_id}).eq("id", row["id"]).execute()
+                except Exception as e:
+                    logger.warning(f"Could not update profile id from {row['id']} to {user_id}: {e}")
+                    return UserProfile(
+                        id=row["id"],
+                        email=email,
+                        role=stored_role,
+                        store_id=stored_store_id
+                    )
+            
+            return UserProfile(
+                id=user_id,
+                email=email,
+                role=stored_role,
+                store_id=stored_store_id
+            )
+    
+    # 3. If no profile row yet, create default customer profile
+    sb.table("profiles").insert({
+        "id": user_id,
+        "email": email,
+        "role": "customer",
+        "store_id": None
+    }).execute()
+    
+    return UserProfile(
+        id=user_id,
+        email=email,
+        role="customer",
+        store_id=None
+    )
+
 def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> UserProfile:
     """
     FastAPI dependency to verify JWT and resolve caller profile server-side.
@@ -81,34 +146,7 @@ def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depen
         )
     
     email = payload.get("email")
-    sb = get_supabase()
-    
-    # Query app2026.profiles server-side
-    res = sb.table("profiles").select("id, email, role, store_id").eq("id", user_id).execute()
-    
-    if res.data and len(res.data) > 0:
-        row = res.data[0]
-        return UserProfile(
-            id=row["id"],
-            email=row.get("email") or email,
-            role=row.get("role", "customer"),
-            store_id=row.get("store_id")
-        )
-    
-    # If no profile row yet, create default customer profile
-    sb.table("profiles").insert({
-        "id": user_id,
-        "email": email,
-        "role": "customer",
-        "store_id": None
-    }).execute()
-    
-    return UserProfile(
-        id=user_id,
-        email=email,
-        role="customer",
-        store_id=None
-    )
+    return ensure_profile(user_id=user_id, email=email)
 
 def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[UserProfile]:
     """Optional user dependency for routes that can optionally identify caller."""
