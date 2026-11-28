@@ -119,8 +119,71 @@ export default function ManagerDashboard() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [inlinePrice, setInlinePrice] = useState('');
   const [inlineStock, setInlineStock] = useState('');
+  const [inlineGstRate, setInlineGstRate] = useState('5');
   const [savingInline, setSavingInline] = useState(false);
   const [inlineError, setInlineError] = useState('');
+
+  // GST Summary State (Stage B)
+  const [gstPeriod, setGstPeriod] = useState('today'); // 'today' | 'month'
+  const [gstSummary, setGstSummary] = useState(null);
+  const [loadingGstSummary, setLoadingGstSummary] = useState(false);
+
+  // Orders & Bills Tab State (Stage B)
+  const [managerOrders, setManagerOrders] = useState([]);
+  const [loadingManagerOrders, setLoadingManagerOrders] = useState(false);
+  const [selectedBillModal, setSelectedBillModal] = useState(null);
+  const [loadingBillDetail, setLoadingBillDetail] = useState(false);
+
+  const fetchGstSummary = async () => {
+    if (!selectedStoreId) return;
+    try {
+      setLoadingGstSummary(true);
+      const data = await api.getManagerGstSummary(selectedStoreId, gstPeriod);
+      setGstSummary(data);
+    } catch (err) {
+      console.warn('Failed to load GST summary:', err);
+    } finally {
+      setLoadingGstSummary(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGstSummary();
+  }, [selectedStoreId, gstPeriod]);
+
+  const fetchManagerOrders = async () => {
+    if (!selectedStoreId) return;
+    try {
+      setLoadingManagerOrders(true);
+      const data = await api.getManagerOrders(selectedStoreId, 50);
+      setManagerOrders(data || []);
+    } catch (err) {
+      console.warn('Failed to load manager orders:', err);
+    } finally {
+      setLoadingManagerOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'orders') {
+      fetchManagerOrders();
+    }
+  }, [selectedStoreId, activeTab]);
+
+  const openBillDetail = async (billNo) => {
+    if (!billNo || billNo === 'PENDING') return;
+    try {
+      setLoadingBillDetail(true);
+      setSelectedBillModal({ bill_no: billNo, loading: true });
+      const detail = await api.getManagerOrderDetail(billNo);
+      setSelectedBillModal(detail);
+    } catch (err) {
+      alert('Failed to load bill: ' + (err.message || 'Unknown error'));
+      setSelectedBillModal(null);
+    } finally {
+      setLoadingBillDetail(false);
+    }
+  };
 
   // Fetch store products
   const fetchStoreProducts = async () => {
@@ -147,6 +210,7 @@ export default function ManagerDashboard() {
     setEditingProductId(prod.id);
     setInlinePrice(prod.price.toString());
     setInlineStock(prod.stock.toString());
+    setInlineGstRate(String(prod.gst_rate !== undefined ? prod.gst_rate : 5));
     setInlineError('');
   };
 
@@ -154,12 +218,14 @@ export default function ManagerDashboard() {
     setEditingProductId(null);
     setInlinePrice('');
     setInlineStock('');
+    setInlineGstRate('5');
     setInlineError('');
   };
 
   const handleSaveInline = async (prod) => {
     const pNum = parseInt(inlinePrice, 10);
     const sNum = parseInt(inlineStock, 10);
+    const gNum = parseInt(inlineGstRate, 10);
 
     if (isNaN(pNum) || pNum < 0) {
       setInlineError('Price must be a valid whole number >= 0');
@@ -175,7 +241,8 @@ export default function ManagerDashboard() {
       setInlineError('');
       const updated = await api.updateStoreProduct(selectedStoreId, prod.id, {
         price: pNum,
-        stock: sNum
+        stock: sNum,
+        gst_rate: isNaN(gNum) ? 5 : gNum
       });
 
       setStoreProducts(prev => prev.map(p => p.id === prod.id ? { ...p, ...updated } : p));
@@ -789,57 +856,205 @@ export default function ManagerDashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* GST Compliance & Tax Return Summary Card (Stage B) */}
+              <div className="bg-white p-6 rounded-2xl border border-[#14532D]/10 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#14532D]/10">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2.5 bg-emerald-100 text-[#14532D] rounded-xl">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-base text-[#16130E]">GST Summary & Compliance (GSTR-1 Ready)</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#E8F1E4] text-[#14532D]">
+                          Intra-State GST (CGST + SGST)
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#43543F] mt-0.5">
+                        Back-calculated slab totals for {currentStore.name} ({gstSummary?.orders_count || 0} paid/used bills)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Today / This Month Toggle */}
+                  <div className="flex bg-[#F6F2E7] p-1 rounded-xl border border-[#14532D]/15 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setGstPeriod('today')}
+                      className={`px-3 py-1.5 rounded-lg transition ${
+                        gstPeriod === 'today'
+                          ? 'bg-[#14532D] text-white shadow-xs'
+                          : 'text-[#43543F] hover:text-[#16130E]'
+                      }`}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGstPeriod('month')}
+                      className={`px-3 py-1.5 rounded-lg transition ${
+                        gstPeriod === 'month'
+                          ? 'bg-[#14532D] text-white shadow-xs'
+                          : 'text-[#43543F] hover:text-[#16130E]'
+                      }`}
+                    >
+                      This Month
+                    </button>
+                  </div>
+                </div>
+
+                {loadingGstSummary ? (
+                  <div className="py-8 text-center text-xs text-[#43543F] flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#14532D]" />
+                    <span>Aggregating GST returns...</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#14532D]/10 text-[#43543F] uppercase font-bold text-[10px] tracking-wider">
+                          <th className="py-2.5 px-3">GST Slab</th>
+                          <th className="py-2.5 px-3 text-right">Taxable Value (₹)</th>
+                          <th className="py-2.5 px-3 text-right">CGST (₹)</th>
+                          <th className="py-2.5 px-3 text-right">SGST (₹)</th>
+                          <th className="py-2.5 px-3 text-right">Total Tax (₹)</th>
+                          <th className="py-2.5 px-3 text-right">Total Revenue (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#14532D]/5">
+                        {gstSummary?.breakup_rows?.map((row, idx) => {
+                          const isTotal = row.rate === 'Total';
+                          return (
+                            <tr key={idx} className={isTotal ? 'font-black bg-[#F6F2E7]/80' : 'hover:bg-[#F6F2E7]/30 transition'}>
+                              <td className="py-2.5 px-3">
+                                {isTotal ? (
+                                  <span className="font-extrabold text-[#16130E]">Grand Total</span>
+                                ) : (
+                                  <span className="font-bold text-[#14532D] bg-[#E8F1E4] px-2 py-0.5 rounded-md text-[11px]">
+                                    GST {row.rate}%
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono">
+                                ₹{Number(row.taxable_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono">
+                                ₹{Number(row.cgst || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono">
+                                ₹{Number(row.sgst || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-800">
+                                ₹{Number(row.tax || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-[#14532D]">
+                                ₹{Number(row.slab_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
           {/* TAB 2: ORDERS LIST TAB */}
           {activeTab === 'orders' && (
             <div className="bg-white p-6 rounded-2xl border border-[#14532D]/10 shadow-xs space-y-4">
-              <div>
-                <h3 className="font-extrabold text-base text-[#16130E]">Store Transactions History</h3>
-                <p className="text-xs text-[#43543F]">Authoritative ledger of orders placed at {currentStore.name}</p>
+              <div className="flex items-center justify-between pb-2 border-b border-[#14532D]/10">
+                <div>
+                  <h3 className="font-extrabold text-base text-[#16130E]">Store Digital Receipts & Bills</h3>
+                  <p className="text-xs text-[#43543F]">Authoritative ledger of orders placed at {currentStore.name} — tap any bill to view full tax breakup</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchManagerOrders}
+                  disabled={loadingManagerOrders}
+                  className="p-2 bg-[#F6F2E7] hover:bg-[#E8F1E4] text-[#14532D] rounded-xl border border-[#14532D]/15 transition"
+                  title="Refresh Orders"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingManagerOrders ? 'animate-spin' : ''}`} />
+                </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#14532D]/10 text-[#43543F] uppercase font-bold text-[10px] tracking-wider">
-                      <th className="py-3 px-3">Bill No</th>
-                      <th className="py-3 px-3">Customer</th>
-                      <th className="py-3 px-3">Items Count</th>
-                      <th className="py-3 px-3">Order Total</th>
-                      <th className="py-3 px-3">Method</th>
-                      <th className="py-3 px-3">Created Date</th>
-                      <th className="py-3 px-3 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#14532D]/5">
-                    {summary?.recent_transactions?.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-[#F6F2E7]/40 transition">
-                        <td className="py-3 px-3 font-mono font-bold text-[#16130E]">{tx.bill_no}</td>
-                        <td className="py-3 px-3 font-medium text-[#16130E]">{tx.customer_name}</td>
-                        <td className="py-3 px-3 text-[#43543F]">{tx.items_count} items</td>
-                        <td className="py-3 px-3 font-bold text-[#14532D]">₹{tx.total}</td>
-                        <td className="py-3 px-3 text-[#43543F]">{tx.payment_method}</td>
-                        <td className="py-3 px-3 text-[#43543F]">
-                          {new Date(tx.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            tx.status === 'Staff Pending'
-                              ? 'bg-amber-100 text-amber-800'
-                              : tx.status === 'Mismatch'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {tx.status}
-                          </span>
-                        </td>
+              {loadingManagerOrders ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
+                  <Loader2 className="w-7 h-7 text-[#14532D] animate-spin" />
+                  <p className="text-xs text-[#43543F]">Loading store bills...</p>
+                </div>
+              ) : managerOrders.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[#43543F]">
+                  No bills found for {currentStore.name}.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#14532D]/10 text-[#43543F] uppercase font-bold text-[10px] tracking-wider">
+                        <th className="py-3 px-3">Bill No</th>
+                        <th className="py-3 px-3">Date & Time</th>
+                        <th className="py-3 px-3">Customer Mobile</th>
+                        <th className="py-3 px-3">Item Count</th>
+                        <th className="py-3 px-3">Total (Incl. GST)</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-3 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-[#14532D]/5">
+                      {managerOrders.map((ord) => (
+                        <tr 
+                          key={ord.order_id} 
+                          onClick={() => openBillDetail(ord.bill_no)}
+                          className="hover:bg-[#F6F2E7]/40 transition cursor-pointer"
+                        >
+                          <td className="py-3 px-3 font-mono font-bold text-[#14532D]">
+                            {ord.bill_no || 'PENDING'}
+                          </td>
+                          <td className="py-3 px-3 text-[#43543F]">
+                            {ord.created_at ? new Date(ord.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-[#16130E]">
+                            {ord.customer_mobile ? `+91 ${ord.customer_mobile}` : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-[#43543F]">
+                            {ord.item_count} items
+                          </td>
+                          <td className="py-3 px-3 font-extrabold text-[#16130E]">
+                            ₹{ord.total}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              ord.status === 'PAID'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : ord.status === 'USED'
+                                ? 'bg-neutral-100 text-neutral-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {ord.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openBillDetail(ord.bill_no);
+                              }}
+                              className="px-2.5 py-1 bg-[#F6F2E7] hover:bg-[#E8F1E4] text-[#14532D] rounded-lg text-[11px] font-bold transition"
+                            >
+                              View Bill
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -1045,6 +1260,7 @@ export default function ManagerDashboard() {
                           <th className="py-3 px-3">Barcode</th>
                           <th className="py-3 px-3">Category</th>
                           <th className="py-3 px-3">Price (INR)</th>
+                          <th className="py-3 px-3">GST Rate</th>
                           <th className="py-3 px-3">Stock Units</th>
                           <th className="py-3 px-3 text-right">Actions</th>
                         </tr>
@@ -1090,6 +1306,27 @@ export default function ManagerDashboard() {
                                   </div>
                                 ) : (
                                   <span className="font-bold text-[#14532D] text-sm">₹{p.price}</span>
+                                )}
+                              </td>
+
+                              {/* GST Rate */}
+                              <td className="py-3 px-3">
+                                {isEditing ? (
+                                  <select
+                                    value={inlineGstRate}
+                                    onChange={(e) => setInlineGstRate(e.target.value)}
+                                    className="px-2 py-1 bg-white border border-[#14532D]/30 rounded-lg text-xs font-semibold text-[#14532D] focus:outline-none focus:ring-1 focus:ring-[#14532D]"
+                                  >
+                                    <option value="0">0%</option>
+                                    <option value="5">5%</option>
+                                    <option value="12">12%</option>
+                                    <option value="18">18%</option>
+                                    <option value="28">28%</option>
+                                  </select>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-md font-semibold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200/60">
+                                    GST {p.gst_rate ?? 5}%
+                                  </span>
                                 )}
                               </td>
 
@@ -1358,6 +1595,166 @@ export default function ManagerDashboard() {
         product={selectedStickerProduct}
         store={currentStore}
       />
+
+      {/* 7. MANAGER BILL DETAIL MODAL (Stage B) */}
+      {selectedBillModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-[#14532D]/10 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-[#14532D]/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-[#14532D] rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-[#16130E]">Digital Tax Receipt</h3>
+                  <p className="text-xs text-[#43543F]">
+                    {selectedBillModal.bill_no || 'Bill Detail'} · {currentStore.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedBillModal(null)}
+                className="p-1.5 text-neutral-400 hover:text-neutral-700 rounded-lg hover:bg-neutral-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingBillDetail ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                <Loader2 className="w-6 h-6 animate-spin text-[#14532D]" />
+                <p className="text-xs text-[#43543F]">Loading bill details & GST breakdown...</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                {/* Meta details */}
+                <div className="grid grid-cols-2 gap-3 p-3 bg-[#F6F2E7]/60 rounded-xl text-xs">
+                  <div>
+                    <span className="text-[10px] text-[#43543F] uppercase font-bold block">Customer Mobile</span>
+                    <span className="font-mono font-bold text-[#16130E]">
+                      {selectedBillModal.customer_mobile ? `+91 ${selectedBillModal.customer_mobile}` : 'Not provided'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[#43543F] uppercase font-bold block">Status</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-block mt-0.5 ${
+                      selectedBillModal.status === 'PAID'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : selectedBillModal.status === 'USED'
+                        ? 'bg-neutral-200 text-neutral-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {selectedBillModal.status} · {selectedBillModal.payment_method || 'UPI'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Items Table */}
+                <div className="space-y-2">
+                  <h4 className="font-extrabold text-xs text-[#16130E] uppercase tracking-wider">
+                    Billed Items ({selectedBillModal.item_count || selectedBillModal.items?.length || 0} units)
+                  </h4>
+                  <div className="border border-[#14532D]/10 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#F6F2E7]/80 text-[#43543F] text-[10px] uppercase font-bold">
+                        <tr>
+                          <th className="py-2 px-3">Item</th>
+                          <th className="py-2 px-2 text-center">Qty</th>
+                          <th className="py-2 px-2 text-center">GST Rate</th>
+                          <th className="py-2 px-3 text-right">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#14532D]/5">
+                        {selectedBillModal.items?.map((it, idx) => (
+                          <tr key={idx}>
+                            <td className="py-2 px-3 font-medium text-[#16130E]">{it.name}</td>
+                            <td className="py-2 px-2 text-center font-mono">×{it.qty}</td>
+                            <td className="py-2 px-2 text-center">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-800">
+                                {it.gst_rate ?? 5}%
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold text-[#14532D]">
+                              ₹{it.price * it.qty}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* GST Slab Table */}
+                {selectedBillModal.gst_breakup && (
+                  <div className="space-y-2">
+                    <h4 className="font-extrabold text-xs text-[#16130E] uppercase tracking-wider">
+                      Tax Breakup (Intra-state GST)
+                    </h4>
+                    <div className="border border-[#14532D]/10 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-[#F6F2E7]/80 text-[#43543F] text-[10px] uppercase font-bold">
+                          <tr>
+                            <th className="py-2 px-2">Slab</th>
+                            <th className="py-2 px-2 text-right">Taxable</th>
+                            <th className="py-2 px-2 text-right">CGST</th>
+                            <th className="py-2 px-2 text-right">SGST</th>
+                            <th className="py-2 px-2 text-right">Total Tax</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#14532D]/5">
+                          {selectedBillModal.gst_breakup.map((row, idx) => {
+                            const isTot = row.rate === 'Total';
+                            return (
+                              <tr key={idx} className={isTot ? 'font-black bg-[#F6F2E7]/60' : ''}>
+                                <td className="py-1.5 px-2 font-bold">{isTot ? 'Total' : `${row.rate}%`}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">₹{Number(row.taxable_value).toFixed(2)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">₹{Number(row.cgst).toFixed(2)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">₹{Number(row.sgst).toFixed(2)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-800">₹{Number(row.tax).toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bill Totals summary */}
+                <div className="pt-2 border-t border-[#14532D]/10 space-y-1 text-xs">
+                  {selectedBillModal.mrp_total && selectedBillModal.mrp_total > selectedBillModal.total && (
+                    <div className="flex justify-between text-[#43543F]">
+                      <span>Total MRP</span>
+                      <span className="line-through">₹{selectedBillModal.mrp_total}</span>
+                    </div>
+                  )}
+                  {selectedBillModal.discount > 0 && (
+                    <div className="flex justify-between text-emerald-700 font-bold">
+                      <span>Total Discount</span>
+                      <span>-₹{selectedBillModal.discount}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-1 font-extrabold text-sm text-[#16130E]">
+                    <span>Grand Total (Paid)</span>
+                    <span className="text-base text-[#14532D]">₹{selectedBillModal.total}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedBillModal(null)}
+                className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-[#16130E] text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Close Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -128,8 +128,15 @@ export default function BillScreen({ onNavigate, billData }) {
         {/* Itemized Receipt Details */}
         <div className="bg-white rounded-card p-4 border border-surface-tint shadow-xs space-y-3">
           <div className="flex justify-between items-center pb-2 border-b border-surface-tint">
-            <h4 className="font-bold text-xs text-ink">Billed Items</h4>
-            <span className="text-xs text-ink-muted">{items.length} item(s)</span>
+            <div>
+              <h4 className="font-bold text-xs text-ink">Tax Invoice Items</h4>
+              <p className="text-[10px] text-ink-muted">
+                {bill?.customer_mobile ? `Customer Mobile: +91 ${bill.customer_mobile}` : 'Customer Mobile: Not provided'}
+              </p>
+            </div>
+            <span className="text-xs text-ink-muted">
+              {bill?.item_count || items.reduce((s, it) => s + (it.qty || 1), 0)} item(s)
+            </span>
           </div>
 
           <div className="space-y-2 text-xs">
@@ -137,11 +144,15 @@ export default function BillScreen({ onNavigate, billData }) {
               const name = item.name_snapshot || item.name;
               const price = item.price_snapshot || item.price;
               const qty = item.qty || 1;
+              const gstRate = item.gst_rate !== undefined ? item.gst_rate : 5;
               return (
                 <div key={idx} className="flex justify-between items-center">
-                  <div className="truncate max-w-[180px]">
+                  <div className="truncate max-w-[200px]">
                     <span className="font-semibold text-ink">{name}</span>
                     <span className="text-ink-muted text-[11px] ml-1.5">× {qty}</span>
+                    <span className="ml-1.5 text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/60 font-semibold px-1.5 py-0.2 rounded">
+                      GST {gstRate}%
+                    </span>
                   </div>
                   <span className="font-bold text-ink">₹{price * qty}</span>
                 </div>
@@ -149,11 +160,79 @@ export default function BillScreen({ onNavigate, billData }) {
             })}
           </div>
 
-          <div className="pt-2.5 border-t border-surface-tint flex justify-between items-center">
-            <span className="font-bold text-sm text-ink">Total Paid</span>
-            <span className="font-extrabold text-base text-primary">₹{total}</span>
+          {/* Pricing & Discount Breakdown */}
+          <div className="pt-2 border-t border-surface-tint space-y-1 text-xs">
+            {bill?.mrp_total && bill.mrp_total > total && (
+              <div className="flex justify-between text-ink-muted">
+                <span>Total MRP</span>
+                <span className="line-through">₹{bill.mrp_total}</span>
+              </div>
+            )}
+            {bill?.discount && bill.discount > 0 && (
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>Total Savings / Discount</span>
+                <span>-₹{bill.discount}</span>
+              </div>
+            )}
+            <div className="pt-1.5 border-t border-surface-tint flex justify-between items-center">
+              <span className="font-bold text-sm text-ink">Grand Total (Incl. GST)</span>
+              <span className="font-extrabold text-base text-primary">₹{total}</span>
+            </div>
           </div>
         </div>
+
+        {/* Slab-wise GST Breakup Table */}
+        {bill?.gst_breakup && bill.gst_breakup.length > 0 && (
+          <div className="bg-white rounded-card p-4 border border-surface-tint shadow-xs space-y-2.5">
+            <div className="flex justify-between items-center pb-1.5 border-b border-surface-tint">
+              <h4 className="font-bold text-xs text-ink">GST Tax Breakup (Intra-state)</h4>
+              <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
+                CGST + SGST
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px]">
+                <thead>
+                  <tr className="border-b border-surface-tint text-ink-muted font-bold text-[10px] uppercase">
+                    <th className="py-1.5 px-1">Rate</th>
+                    <th className="py-1.5 px-1 text-right">Taxable (₹)</th>
+                    <th className="py-1.5 px-1 text-right">CGST (₹)</th>
+                    <th className="py-1.5 px-1 text-right">SGST (₹)</th>
+                    <th className="py-1.5 px-1 text-right">Total Tax (₹)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-tint/50">
+                  {bill.gst_breakup.map((row, idx) => {
+                    const isTotal = row.rate === 'Total';
+                    return (
+                      <tr key={idx} className={isTotal ? 'font-bold bg-cream/60' : 'text-ink'}>
+                        <td className="py-1.5 px-1">
+                          {isTotal ? 'Total' : `${row.rate}%`}
+                        </td>
+                        <td className="py-1.5 px-1 text-right">
+                          {Number(row.taxable_value).toFixed(2)}
+                        </td>
+                        <td className="py-1.5 px-1 text-right">
+                          {Number(row.cgst).toFixed(2)}
+                        </td>
+                        <td className="py-1.5 px-1 text-right">
+                          {Number(row.sgst).toFixed(2)}
+                        </td>
+                        <td className="py-1.5 px-1 text-right text-emerald-800">
+                          {Number(row.tax).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[9px] text-ink-muted leading-relaxed">
+              *Taxes are computed on slab totals back-calculated from inclusive MRP prices. Intra-state supply.
+            </p>
+          </div>
+        )}
 
       </div>
 

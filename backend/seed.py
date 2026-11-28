@@ -26,6 +26,7 @@ from typing import Dict, Any, List
 import httpx
 from dotenv import load_dotenv
 from supabase import create_client, ClientOptions
+from core.gst import default_gst_rate
 
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -366,6 +367,9 @@ def seed_database(preserve_custom_products: bool = False):
             "unit": "1kg"
         }
     ]
+    for p in products_data:
+        p["gst_rate"] = default_gst_rate(p.get("category"), p["name"], p["price"])
+
     prods_res = sb.table("products").upsert(products_data, on_conflict="store_id,barcode").execute()
     print(f"Upserted {len(prods_res.data)} products successfully.")
 
@@ -416,15 +420,16 @@ def seed_database(preserve_custom_products: bool = False):
 
     # Ensure canonical bill SS-20481 is included in past orders
     canonical_items = [
-        {"name": "Amul Taaza Milk 500ml", "barcode": "8901262010015", "price": 62, "qty": 1},
-        {"name": "Britannia Whole Wheat Bread", "barcode": "8901063142217", "price": 45, "qty": 1},
-        {"name": "Head & Shoulders Shampoo 340ml", "barcode": "4902430752108", "price": 210, "qty": 1}
+        {"name": "Amul Taaza Milk 500ml", "barcode": "8901262010015", "price": 62, "qty": 1, "gst_rate": 0},
+        {"name": "Britannia Whole Wheat Bread", "barcode": "8901063142217", "price": 45, "qty": 1, "gst_rate": 0},
+        {"name": "Head & Shoulders Shampoo 340ml", "barcode": "4902430752108", "price": 210, "qty": 1, "gst_rate": 5}
     ]
     canonical_order_id = str(uuid.uuid4())
     canonical_order = {
         "id": canonical_order_id,
         "store_id": fm_id,
         "customer_id": demo_cust_id,
+        "customer_mobile": "9876543210",
         "bill_no": "SS-20481",
         "total": 317,
         "payment_method": "mock_upi",
@@ -445,7 +450,8 @@ def seed_database(preserve_custom_products: bool = False):
             "name": it["name"],
             "barcode": it["barcode"],
             "price": it["price"],
-            "qty": it["qty"]
+            "qty": it["qty"],
+            "gst_rate": it.get("gst_rate", 5)
         }
         for it in canonical_items
     ]
@@ -470,6 +476,7 @@ def seed_database(preserve_custom_products: bool = False):
             "id": oid,
             "store_id": store_choice,
             "customer_id": random.choice(customer_ids),
+            "customer_mobile": "9876543210",
             "bill_no": bill_num,
             "total": order_total,
             "payment_method": "mock_upi",
@@ -486,7 +493,8 @@ def seed_database(preserve_custom_products: bool = False):
                 "barcode": p["barcode"],
                 "name": p["name"],
                 "price": p["price"],
-                "qty": 1
+                "qty": 1,
+                "gst_rate": p.get("gst_rate") if p.get("gst_rate") is not None else default_gst_rate(p.get("category"), p["name"], p["price"])
             })
 
     # Bulk insert all 40 orders and their items in 2 fast queries

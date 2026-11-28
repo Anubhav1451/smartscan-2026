@@ -43,6 +43,7 @@ export default function ManagerAddProductModal({
   const [customCategory, setCustomCategory] = useState('');
   const [price, setPrice] = useState('');
   const [stock, setStock] = useState('');
+  const [gstRate, setGstRate] = useState('5');
   const [savedProduct, setSavedProduct] = useState(null);
 
   const videoRef = useRef(null);
@@ -66,6 +67,15 @@ export default function ManagerAddProductModal({
     }
   };
 
+  function getDefaultGstRate(cat, prodName, p) {
+    const n = (prodName || '').toLowerCase();
+    const c = (cat || '').toLowerCase();
+    if (n.includes('milk') || n.includes('bread') || c === 'bakery') return 0;
+    if (['electronics', 'appliances'].includes(c)) return 18;
+    if (['clothing', 'footwear', 'apparel'].includes(c)) return (p || 0) <= 2500 ? 5 : 18;
+    return 5;
+  }
+
   // Reset internal states
   const resetForm = () => {
     stopCamera();
@@ -80,6 +90,7 @@ export default function ManagerAddProductModal({
     setCustomCategory('');
     setPrice('');
     setStock('10');
+    setGstRate('5');
     setSavedProduct(null);
     setManualBarcode('');
   };
@@ -111,18 +122,22 @@ export default function ManagerAddProductModal({
         setCustomCategory('');
         setPrice(prod.price.toString());
         setStock(prod.stock.toString());
+        setGstRate(String(prod.gst_rate !== undefined ? prod.gst_rate : getDefaultGstRate(prod.category, prod.name, prod.price)));
       } else if (res.status === 'EXISTS_OTHER_STORE') {
-        setName(res.other_product?.name || '');
-        setCategory(res.other_product?.category || existingCategories[0] || 'Apparel');
+        const other = res.other_product;
+        setName(other?.name || '');
+        setCategory(other?.category || existingCategories[0] || 'Apparel');
         setCustomCategory('');
         setPrice('');
         setStock('10');
+        setGstRate(String(other?.gst_rate !== undefined ? other.gst_rate : getDefaultGstRate(other?.category, other?.name, 0)));
       } else {
         setName('');
         setCategory(existingCategories[0] || 'Apparel');
         setCustomCategory('');
         setPrice('');
         setStock('10');
+        setGstRate('5');
       }
 
       setStep('form');
@@ -281,6 +296,7 @@ export default function ManagerAddProductModal({
     }
 
     setSaving(true);
+    const gstRateNum = parseInt(gstRate, 10);
     try {
       let saved;
       if (lookupResult?.status === 'EXISTS_CURRENT_STORE') {
@@ -289,7 +305,8 @@ export default function ManagerAddProductModal({
           name: name.trim(),
           category: finalCategory,
           price: priceNum,
-          stock: stockNum
+          stock: stockNum,
+          gst_rate: isNaN(gstRateNum) ? 5 : gstRateNum
         });
       } else {
         // Add new product to this store
@@ -298,7 +315,8 @@ export default function ManagerAddProductModal({
           name: name.trim(),
           category: finalCategory,
           price: priceNum,
-          stock: stockNum
+          stock: stockNum,
+          gst_rate: isNaN(gstRateNum) ? 5 : gstRateNum
         });
       }
 
@@ -588,6 +606,21 @@ export default function ManagerAddProductModal({
                     required
                     className="w-full px-3.5 py-2.5 bg-white border border-neutral-300 rounded-xl text-xs font-mono text-[#16130E] focus:outline-none focus:border-[#14532D]"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#16130E] mb-1">GST Rate (Inclusive MRP)</label>
+                  <select
+                    value={gstRate}
+                    onChange={(e) => setGstRate(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-xl text-xs font-semibold text-[#14532D] focus:outline-none focus:border-[#14532D]"
+                  >
+                    <option value="0">0% (Nil / Fresh Staples like Milk & Bread)</option>
+                    <option value="5">5% (Grocery / Packaged FMCG / Apparel ≤ ₹2500)</option>
+                    <option value="12">12%</option>
+                    <option value="18">18% (Electronics / Appliances / Apparel &gt; ₹2500)</option>
+                    <option value="28">28% (Sin / Demerit Goods)</option>
+                  </select>
                 </div>
               </div>
 

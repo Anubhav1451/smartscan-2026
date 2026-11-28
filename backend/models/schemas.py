@@ -1,5 +1,6 @@
+import re
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Store Models
 class StoreResponse(BaseModel):
@@ -23,6 +24,7 @@ class ProductResponse(BaseModel):
     mrp: Optional[int] = None
     stock: int
     unit: Optional[str] = None
+    gst_rate: int = 5
 
 class ProductCreateRequest(BaseModel):
     barcode: str = Field(..., min_length=1, description="Barcode for the product")
@@ -33,6 +35,7 @@ class ProductCreateRequest(BaseModel):
     mrp: Optional[int] = Field(None, ge=0)
     stock: int = Field(..., ge=0, description="Available stock units")
     unit: Optional[str] = None
+    gst_rate: Optional[int] = Field(None, description="GST rate percentage (0, 5, 12, 18, 28)")
 
 class ProductUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -42,6 +45,7 @@ class ProductUpdateRequest(BaseModel):
     mrp: Optional[int] = Field(None, ge=0)
     stock: Optional[int] = Field(None, ge=0)
     unit: Optional[str] = None
+    gst_rate: Optional[int] = Field(None, description="GST rate percentage (0, 5, 12, 18, 28)")
 
 # Bulk Import Models
 class ImportRowError(BaseModel):
@@ -98,6 +102,17 @@ class CheckoutItem(BaseModel):
 class CheckoutRequest(BaseModel):
     store_id: str
     items: List[CheckoutItem]
+    customer_mobile: Optional[str] = None
+
+    @field_validator("customer_mobile")
+    @classmethod
+    def validate_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if not v or not v.strip():
+            return None
+        cleaned = v.strip()
+        if not re.match(r"^[6-9]\d{9}$", cleaned):
+            raise ValueError("Customer mobile must be a valid 10-digit Indian mobile number starting with 6-9")
+        return cleaned
 
 class OrderItemResponse(BaseModel):
     product_id: Optional[str] = None
@@ -106,6 +121,8 @@ class OrderItemResponse(BaseModel):
     price: int
     qty: int
     line_total: Optional[int] = None
+    gst_rate: int = 5
+    mrp: Optional[int] = None
 
 class CheckoutResponse(BaseModel):
     order_id: str
@@ -114,6 +131,10 @@ class CheckoutResponse(BaseModel):
     status: str
     payment_status: str
     items: List[OrderItemResponse]
+    item_count: Optional[int] = None
+    customer_mobile: Optional[str] = None
+    mrp_total: Optional[int] = None
+    discount: Optional[int] = None
 
 # Pay Models
 class MockPayResponse(BaseModel):
@@ -127,6 +148,12 @@ class MockPayResponse(BaseModel):
     store_name: Optional[str] = None
     paid_at: str
     items: List[OrderItemResponse]
+    item_count: Optional[int] = None
+    customer_mobile: Optional[str] = None
+    gst_breakup: Optional[List[Dict[str, Any]]] = None
+    gst_totals: Optional[Dict[str, Any]] = None
+    mrp_total: Optional[int] = None
+    discount: Optional[int] = None
 
 class CashPayResponse(BaseModel):
     order_id: str
@@ -158,6 +185,12 @@ class ExitVerifyResponse(BaseModel):
     total: Optional[int] = None
     paid_at: Optional[str] = None
     items: Optional[List[Dict[str, Any]]] = None
+    item_count: Optional[int] = None
+    customer_mobile: Optional[str] = None
+    gst_breakup: Optional[List[Dict[str, Any]]] = None
+    gst_totals: Optional[Dict[str, Any]] = None
+    mrp_total: Optional[int] = None
+    discount: Optional[int] = None
     message: Optional[str] = None
 
 class ExitUseRequest(BaseModel):
@@ -168,6 +201,28 @@ class ExitUseResponse(BaseModel):
     status: str
     bill_no: str
     message: str
+
+# GST & Manager Summary Models
+class GSTSummaryResponse(BaseModel):
+    period: str
+    store_id: str
+    orders_count: int
+    total_sales: int
+    slabs: List[Dict[str, Any]]
+    totals: Dict[str, Any]
+    breakup_rows: Optional[List[Dict[str, Any]]] = None
+
+class ManagerOrderListItem(BaseModel):
+    order_id: str
+    bill_no: Optional[str] = None
+    time: str
+    created_at: str
+    item_count: int
+    items_count: int
+    total: int
+    payment_status: str
+    status: str
+    customer_mobile: Optional[str] = None
 
 # Profile / Auth Models
 class UserProfileResponse(BaseModel):

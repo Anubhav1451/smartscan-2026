@@ -71,10 +71,10 @@ export const api = {
   },
 
   // Checkout & Orders
-  async checkout({ store_id, items, payment_method = 'UPI_MOCK' }) {
+  async checkout({ store_id, items, payment_method = 'UPI_MOCK', customer_mobile = null }) {
     return request('/checkout', {
       method: 'POST',
-      body: JSON.stringify({ store_id, items, payment_method }),
+      body: JSON.stringify({ store_id, items, payment_method, customer_mobile }),
     });
   },
 
@@ -244,6 +244,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ confirm: true }),
     });
+  },
+
+  // Manager Orders & GST Summary (Stage B)
+  async getManagerOrders(storeId, limit = 50) {
+    const q = new URLSearchParams();
+    if (storeId) q.set('store_id', storeId);
+    if (limit) q.set('limit', limit);
+    return request(`/manager/orders?${q.toString()}`);
+  },
+
+  async getManagerOrderDetail(billNo) {
+    return request(`/manager/orders/${encodeURIComponent(billNo)}`);
+  },
+
+  async getManagerGstSummary(storeId, period = 'today') {
+    const q = new URLSearchParams();
+    if (storeId) q.set('store_id', storeId);
+    if (period) q.set('period', period);
+    return request(`/manager/gst-summary?${q.toString()}`);
   },
 };
 

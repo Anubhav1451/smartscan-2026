@@ -135,11 +135,9 @@ export default function BarcodeStickerModal({
 
             {/* Price Tag */}
             <div className="w-full flex items-center justify-center gap-1.5 my-1">
-              <span className="text-[11px] font-semibold text-neutral-500">MRP:</span>
-              <span className="text-lg font-black text-[#14532D] tracking-tight">
-                ₹{product.price}
+              <span className="text-xs font-black text-[#14532D] tracking-tight">
+                MRP Rs {product.mrp || product.price} (incl. GST {product.gst_rate ?? 5}%)
               </span>
-              <span className="text-[9px] text-neutral-400 font-medium">(incl. taxes)</span>
             </div>
 
             {/* Barcode Vector Graphic */}
