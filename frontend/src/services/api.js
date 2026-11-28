@@ -214,6 +214,10 @@ export const api = {
     });
   },
 
+  async checkBillExists(billNo) {
+    return request(`/exit/check/${encodeURIComponent(billNo)}`);
+  },
+
   async verifyExitBill(billId) {
     return request('/exit/verify', {
       method: 'POST',

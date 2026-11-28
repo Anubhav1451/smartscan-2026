@@ -10,11 +10,14 @@ import {
   X, 
   ShieldCheck,
   Check,
-  Loader2
+  Loader2,
+  FileText,
+  AlertOctagon
 } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import FakeBillModal from './FakeBillModal';
 
 export default function StaffScreen() {
   const { profile, signOut } = useAuth();
@@ -27,6 +30,7 @@ export default function StaffScreen() {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState(null); // { status, bill_no, order_id, ... }
   const [markingUsed, setMarkingUsed] = useState(false);
+  const [showFakeBillModal, setShowFakeBillModal] = useState(false);
 
   // RFID Simulation state
   const [rfidExtraItem, setRfidExtraItem] = useState(false);
@@ -62,8 +66,12 @@ export default function StaffScreen() {
 
   // Handle Verify QR / ID
   const handleVerify = async (billIdOrPayload) => {
-    const cleaned = (billIdOrPayload || manualBillId).trim();
+    let cleaned = (billIdOrPayload || manualBillId).trim();
     if (!cleaned) return;
+    if (cleaned.includes('|')) {
+      const match = cleaned.split('|').find((p) => p.startsWith('SS-'));
+      if (match) cleaned = match;
+    }
 
     setVerifying(true);
     setRfidResult(null);
@@ -71,18 +79,28 @@ export default function StaffScreen() {
     setManagerAlerted(false);
     try {
       const res = await api.verifyExitBill(cleaned);
-      setVerifyResult({ ...res, status: res.result || res.status });
+      setVerifyResult({
+        ...res,
+        status: res.result || res.status,
+        bill_no: res.bill_no || cleaned,
+      });
       if (showScanner) {
         closeScanner();
       }
     } catch (err) {
       setVerifyResult({
         status: 'INVALID',
+        bill_no: cleaned,
         message: err.message || 'Bill verification failed.',
       });
     } finally {
       setVerifying(false);
     }
+  };
+
+  const handleTestVerifyFromModal = (fakeBillNumber) => {
+    setManualBillId(fakeBillNumber);
+    handleVerify(fakeBillNumber);
   };
 
   const handleRunRfidCheck = async () => {
@@ -247,6 +265,18 @@ export default function StaffScreen() {
               {verifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Verify'}
             </button>
           </form>
+
+          {/* Fake Bill Demo Tool */}
+          <div className="pt-2 border-t border-surface-tint">
+            <button
+              type="button"
+              onClick={() => setShowFakeBillModal(true)}
+              className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-card-sm text-xs font-bold transition flex items-center justify-center gap-2 shadow-2xs active:scale-[0.99]"
+            >
+              <FileText className="w-4 h-4 text-amber-700" />
+              <span>Generate Sample FAKE Bill (test)</span>
+            </button>
+          </div>
         </div>
 
         {/* Verification Result Display */}
@@ -299,21 +329,52 @@ export default function StaffScreen() {
               </div>
             )}
 
-            {verifyResult.status === 'INVALID' && (
-              <div className="flex items-center gap-2.5 p-3 bg-alert-bg border border-alert/30 rounded-card-sm text-alert">
-                <AlertCircle className="w-5 h-5 shrink-0" />
+            {verifyResult.status === 'UNPAID' && (
+              <div className="flex items-center gap-2.5 p-3 bg-pending-bg border border-pending/30 rounded-card-sm text-pending">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
                 <div className="leading-tight">
-                  <span className="font-extrabold text-xs tracking-wider uppercase">INVALID</span>
+                  <span className="font-extrabold text-xs tracking-wider uppercase">UNPAID BILL</span>
                   <p className="text-[11px] text-ink-muted mt-0.5">
-                    {verifyResult.message || 'Invalid bill code or unpaid transaction.'}
+                    {verifyResult.message || 'This bill has not been paid yet. Customer must complete payment.'}
                   </p>
-                  <p className="text-xs font-bold text-alert mt-1">Payment NOT verified — do not allow exit</p>
+                  <p className="text-xs font-bold text-pending mt-1">Payment NOT completed — hold at gate</p>
+                </div>
+              </div>
+            )}
+
+            {verifyResult.status === 'INVALID' && (
+              <div className="w-full bg-red-600 border-4 border-red-700 rounded-card p-6 text-white text-center shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/20 border-2 border-white/40 mx-auto">
+                  <AlertOctagon className="w-10 h-10 text-white stroke-[2.5]" />
+                </div>
+
+                <div className="space-y-1">
+                  <h2 className="text-4xl md:text-5xl font-black tracking-wider uppercase text-white drop-shadow-md">
+                    FAKE BILL
+                  </h2>
+                  <p className="text-lg md:text-xl font-bold text-red-100">
+                    This bill is not in our system.
+                  </p>
+                </div>
+
+                {/* Entered Bill Number Badge */}
+                <div className="bg-black/35 border-2 border-white/40 rounded-card-sm py-3 px-5 max-w-sm mx-auto shadow-inner">
+                  <span className="text-xs uppercase tracking-widest text-red-200 font-bold block mb-1">
+                    Rejected Bill Reference
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-white">
+                    {verifyResult.bill_no || manualBillId || 'UNKNOWN'}
+                  </span>
+                </div>
+
+                <div className="inline-block bg-white text-red-700 font-extrabold text-xs uppercase tracking-widest px-4 py-1.5 rounded-full shadow-md">
+                  DO NOT ALLOW EXIT • STOP CUSTOMER
                 </div>
               </div>
             )}
 
             {/* Bill Details */}
-            {verifyResult.bill_no && (
+            {verifyResult.status !== 'INVALID' && verifyResult.bill_no && (
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between items-center text-ink">
                   <span className="text-ink-muted">Bill Number</span>
@@ -628,6 +689,13 @@ export default function StaffScreen() {
           </div>
         </div>
       )}
+      {/* Fake Bill Generator Modal */}
+      <FakeBillModal
+        isOpen={showFakeBillModal}
+        onClose={() => setShowFakeBillModal(false)}
+        onTestVerify={handleTestVerifyFromModal}
+        storeName={`${storeName} (Demo)`}
+      />
     </div>
   );
 }
