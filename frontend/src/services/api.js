@@ -49,6 +49,10 @@ export const api = {
     return request('/auth/me');
   },
 
+  async bootstrap() {
+    return request('/auth/bootstrap', { method: 'POST' });
+  },
+
   // Stores & Products
   async getStores() {
     return request('/stores');

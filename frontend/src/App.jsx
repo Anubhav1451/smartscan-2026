@@ -13,6 +13,7 @@ import BillScreen from './components/BillScreen';
 import OrdersListScreen from './components/OrdersListScreen';
 import StaffScreen from './components/StaffScreen';
 import ManagerDashboard from './components/ManagerDashboard';
+import ResetPasswordScreen from './components/ResetPasswordScreen';
 import { Loader2 } from 'lucide-react';
 
 function AppContent() {
@@ -23,6 +24,7 @@ function AppContent() {
       const params = new URLSearchParams(window.location.search);
       const screen = params.get('screen');
       if (screen) return screen;
+      if (window.location.hash.includes('type=recovery')) return 'reset-password';
     }
     return 'home';
   });
@@ -68,11 +70,20 @@ function AppContent() {
     );
   }
 
+  // 0. Password recovery screen (accessible whether logged in with recovery token or direct link)
+  if (currentScreen === 'reset-password' || (typeof window !== 'undefined' && window.location.hash.includes('type=recovery'))) {
+    return (
+      <PhoneFrame currentScreen="reset-password" onNavigate={handleNavigate}>
+        <ResetPasswordScreen onNavigate={handleNavigate} />
+      </PhoneFrame>
+    );
+  }
+
   // 1. Unauthenticated users always land on Login
   if (!user) {
     return (
-      <PhoneFrame currentScreen="login" onNavigate={() => {}}>
-        <LoginScreen />
+      <PhoneFrame currentScreen="login" onNavigate={handleNavigate}>
+        <LoginScreen onNavigate={handleNavigate} />
       </PhoneFrame>
     );
   }

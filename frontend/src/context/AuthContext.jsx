@@ -19,22 +19,34 @@ export function AuthProvider({ children }) {
       return;
     }
     try {
-      const data = await api.getMe();
+      // First try /auth/bootstrap to ensure profile is provisioned in app2026.profiles
+      const data = await api.bootstrap();
       setProfile({
         id: data.id,
         role: data.role || 'customer',
         store_id: data.store_id,
-        display_name: data.display_name || 'Customer',
+        display_name: data.display_name || currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'Customer',
         store: data.store || null,
       });
     } catch (err) {
-      console.warn('Failed to load profile via backend getMe:', err);
-      setProfile({
-        id: currentUser.id,
-        role: 'customer',
-        store_id: null,
-        display_name: currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || 'Customer',
-      });
+      console.warn('Failed to load profile via backend bootstrap, falling back to getMe:', err);
+      try {
+        const data = await api.getMe();
+        setProfile({
+          id: data.id,
+          role: data.role || 'customer',
+          store_id: data.store_id,
+          display_name: data.display_name || currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'Customer',
+          store: data.store || null,
+        });
+      } catch (err2) {
+        setProfile({
+          id: currentUser.id,
+          role: 'customer',
+          store_id: null,
+          display_name: currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Customer',
+        });
+      }
     }
   };
 
@@ -95,6 +107,33 @@ export function AuthProvider({ children }) {
     return signIn('manager-sh@smartscan.app', DEMO_PASSWORD);
   };
 
+  const signInWithGoogle = async () => {
+    const redirectTo = window.location.origin + '/';
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+      },
+    });
+    if (error) throw error;
+    return data;
+  };
+
+  const resetPasswordForEmail = async (email) => {
+    const redirectTo = window.location.origin + '/?screen=reset-password';
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    if (error) throw error;
+    return data;
+  };
+
+  const updateUserPassword = async (password) => {
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
+    return data;
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -110,6 +149,9 @@ export function AuthProvider({ children }) {
         profile,
         loading,
         signIn,
+        signInWithGoogle,
+        resetPasswordForEmail,
+        updateUserPassword,
         signInDemo,
         signInStaffDemo,
         signInManagerDemo,
