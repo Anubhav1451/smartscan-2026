@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from core.db import get_supabase
-from core.auth import get_optional_user, UserProfile
+from core.auth import get_optional_user, UserProfile, require_staff_or_manager
 from core.gst import compute_gst_breakup
 from models.schemas import (
     ExitVerifyRequest,
@@ -15,6 +15,53 @@ from models.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/exit", tags=["Exit Verification"])
+
+@router.get("/check/{bill_no}")
+def check_bill_exists(
+    bill_no: str,
+    user: UserProfile = Depends(require_staff_or_manager)
+):
+    """
+    Lightweight check if a bill number exists in app2026.orders. Staff/manager only.
+    Used by test and fake bill tools to confirm absence or presence.
+    """
+    sb = get_supabase()
+    cleaned = bill_no.strip().upper()
+    if "|" in cleaned:
+        for p in cleaned.split("|"):
+            if p.startswith("SS-"):
+                cleaned = p
+                break
+    res = sb.table("orders").select("id, bill_no").eq("bill_no", cleaned).limit(1).execute()
+    exists = bool(res.data and len(res.data) > 0)
+    return {"bill_no": cleaned, "exists": exists}
+
+def _enrich_order_items(sb, order_id: str, order_total: int):
+    items_res = sb.table("order_items").select("product_id, barcode, name, price, qty, gst_rate").eq("order_id", order_id).execute()
+    items = items_res.data or []
+    prod_ids = [it["product_id"] for it in items if it.get("product_id")]
+    prod_map = {}
+    if prod_ids:
+        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
+        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
+
+    for it in items:
+        if it.get("gst_rate") is None:
+            it["gst_rate"] = 5
+        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
+
+    breakup = compute_gst_breakup(items)
+    item_count = sum(it.get("qty", 1) for it in items)
+    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items)
+    discount = max(0, mrp_total - order_total)
+    return {
+        "items": items,
+        "item_count": item_count,
+        "mrp_total": mrp_total,
+        "discount": discount,
+        "gst_breakup": breakup["breakup_rows"],
+        "gst_totals": breakup["totals"]
+    }
 
 @router.post("/verify", response_model=ExitVerifyResponse)
 def verify_exit_bill(
@@ -36,6 +83,11 @@ def verify_exit_bill(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "bill_no or bill_id is required", "code": "MISSING_BILL_NO"}
         )
+    if "|" in bill_no:
+        for p in bill_no.split("|"):
+            if p.startswith("SS-"):
+                bill_no = p
+                break
     verified_by = user.id if user else None
     
     # 1. Look up order by bill_no
@@ -59,6 +111,7 @@ def verify_exit_bill(
         
     order = res.data[0]
     order_id = order["id"]
+    store_info = order.get("stores") or {}
     
     # 2. Check if already used
     if order["status"] == "USED":
@@ -69,11 +122,18 @@ def verify_exit_bill(
             "verified_by": verified_by,
             "created_at": datetime.now(timezone.utc).isoformat()
         }).execute()
+        enrichment = _enrich_order_items(sb, order_id, order["total"])
         return ExitVerifyResponse(
             result="ALREADY_USED",
             bill_no=bill_no,
             order_id=order_id,
-            message="This bill has already been verified and used for exit"
+            store_name=store_info.get("name"),
+            store_code=store_info.get("code"),
+            total=order["total"],
+            paid_at=order.get("paid_at"),
+            customer_mobile=order.get("customer_mobile"),
+            message="This bill has already been verified and used for exit",
+            **enrichment
         )
         
     # 3. Check payment status
@@ -101,25 +161,7 @@ def verify_exit_bill(
         "created_at": datetime.now(timezone.utc).isoformat()
     }).execute()
     
-    items_res = sb.table("order_items").select("product_id, barcode, name, price, qty, gst_rate").eq("order_id", order_id).execute()
-    items = items_res.data or []
-    prod_ids = [it["product_id"] for it in items if it.get("product_id")]
-    prod_map = {}
-    if prod_ids:
-        p_res = sb.table("products").select("id, mrp").in_("id", prod_ids).execute()
-        prod_map = {p["id"]: p.get("mrp") for p in (p_res.data or [])}
-
-    for it in items:
-        if it.get("gst_rate") is None:
-            it["gst_rate"] = 5
-        it["mrp"] = prod_map.get(it.get("product_id")) or it.get("price")
-
-    breakup = compute_gst_breakup(items)
-    item_count = sum(it.get("qty", 1) for it in items)
-    mrp_total = sum((it.get("mrp") or it["price"]) * it.get("qty", 1) for it in items)
-    discount = max(0, mrp_total - order["total"])
-    store_info = order.get("stores") or {}
-    
+    enrichment = _enrich_order_items(sb, order_id, order["total"])
     return ExitVerifyResponse(
         result="VERIFIED",
         bill_no=bill_no,
@@ -129,13 +171,8 @@ def verify_exit_bill(
         total=order["total"],
         paid_at=order.get("paid_at"),
         customer_mobile=order.get("customer_mobile"),
-        items=items,
-        item_count=item_count,
-        mrp_total=mrp_total,
-        discount=discount,
-        gst_breakup=breakup["breakup_rows"],
-        gst_totals=breakup["totals"],
-        message="Valid paid bill verified. Clear for exit."
+        message="Valid paid bill verified. Clear for exit.",
+        **enrichment
     )
 
 @router.post("/use", response_model=ExitUseResponse)
