@@ -98,32 +98,17 @@ SEED_BARCODES = {
 }
 
 def seed_database(preserve_custom_products: bool = False):
-    print(f"--- [SmartScan 2026 Seed] Starting seed for schema: {SCHEMA} (preserve_custom_products={preserve_custom_products}) ---")
+    print(f"--- [SmartScan 2026 Seed] Starting network-safe demo seed for schema: {SCHEMA} (preserve_custom_products={preserve_custom_products}) ---")
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env")
 
     sb = get_supabase_client()
 
-    # 1. Clean existing tables in app2026 (rerunnable)
-    print("1/5 Cleaning existing data in schema app2026...")
-    try:
-        sb.table("exit_verifications").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("order_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("orders").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        sb.table("unknown_scans").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-        if not preserve_custom_products:
-            sb.table("products").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-            sb.table("profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-            sb.table("stores").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-            sb.table("retailers").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-    except Exception as e:
-        print(f"Warning during table cleanup: {e}")
-
-    # 2. Retailer & Stores
-    print("2/5 Ensuring Retailer and 3 Stores (FreshMart, StyleHub, DailyNeeds)...")
-    existing_stores = sb.table("stores").select("id, code").execute()
+    # 1. Ensure Retailer and 3 Demo Stores (FreshMart, StyleHub, DailyNeeds)
+    print("1/5 Ensuring Retailer and 3 Demo Stores (FreshMart, StyleHub, DailyNeeds)...")
+    existing_stores = sb.table("stores").select("id, code").in_("code", ["FM", "SH", "DN"]).execute()
     stores_map = {}
-    if existing_stores.data and len(existing_stores.data) >= 3:
+    if existing_stores.data:
         stores_map = {s["code"]: s["id"] for s in existing_stores.data}
     
     if not stores_map or "FM" not in stores_map or "SH" not in stores_map or "DN" not in stores_map:
@@ -161,7 +146,36 @@ def seed_database(preserve_custom_products: bool = False):
             }
         ]
         stores_res = sb.table("stores").upsert(stores_data, on_conflict="code").execute()
-        stores_map = {s["code"]: s["id"] for s in stores_res.data}
+        for s in (stores_res.data or []):
+            stores_map[s["code"]] = s["id"]
+        
+    fm_id = stores_map["FM"]
+    sh_id = stores_map["SH"]
+    dn_id = stores_map["DN"]
+    demo_store_ids = [fm_id, sh_id, dn_id]
+
+    # 2. Clean existing DEMO-ONLY data in schema app2026 (Network stores, products, orders are UNTOUCHED)
+    print("2/5 Cleaning existing demo store orders and unknown scans (scoped to FM, SH, DN)...")
+    try:
+        # Fetch order IDs belonging to the 3 demo stores
+        demo_orders_res = sb.table("orders").select("id").in_("store_id", demo_store_ids).execute()
+        demo_order_ids = [o["id"] for o in (demo_orders_res.data or [])]
+
+        if demo_order_ids:
+            chunk_size = 50
+            for i in range(0, len(demo_order_ids), chunk_size):
+                chunk = demo_order_ids[i:i + chunk_size]
+                sb.table("exit_verifications").delete().in_("order_id", chunk).execute()
+                sb.table("order_items").delete().in_("order_id", chunk).execute()
+
+        sb.table("exit_verifications").delete().eq("bill_no", "SS-20481").execute()
+        sb.table("orders").delete().in_("store_id", demo_store_ids).execute()
+        sb.table("unknown_scans").delete().in_("store_id", demo_store_ids).execute()
+
+        if not preserve_custom_products:
+            sb.table("products").delete().in_("store_id", demo_store_ids).not_.in_("barcode", list(SEED_BARCODES)).execute()
+    except Exception as e:
+        print(f"Warning during demo table cleanup: {e}")
         
     fm_id = stores_map["FM"]
     sh_id = stores_map["SH"]
@@ -436,13 +450,18 @@ def seed_database(preserve_custom_products: bool = False):
         for it in canonical_items
     ]
 
+    demo_bill_counter = 20001
     for i in range(orders_to_create):
         store_choice = random.choices([fm_id, sh_id, dn_id], weights=[0.55, 0.25, 0.20])[0]
         avail_prods = all_store_prods[store_choice]
         picked_prods = random.sample(avail_prods, k=random.randint(1, min(3, len(avail_prods))))
         
         order_total = sum(p["price"] for p in picked_prods)
-        bill_num = f"SS-{random.randint(30000, 89999)}"
+        if demo_bill_counter == 20481:
+            demo_bill_counter += 1
+        bill_num = f"SS-{demo_bill_counter}"
+        demo_bill_counter += 1
+
         days_ago = random.uniform(0.1, 6.9)
         order_time = (now - timedelta(days=days_ago)).isoformat()
         oid = str(uuid.uuid4())

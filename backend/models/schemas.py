@@ -124,6 +124,7 @@ class MockPayResponse(BaseModel):
     status: str
     payment_status: str
     store_id: str
+    store_name: Optional[str] = None
     paid_at: str
     items: List[OrderItemResponse]
 

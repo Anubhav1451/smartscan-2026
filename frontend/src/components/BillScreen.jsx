@@ -19,7 +19,7 @@ export default function BillScreen({ onNavigate, billData }) {
   const billNo = bill?.bill_no || 'SS-20481';
   const qrPayload = bill?.qr_token || `SMARTSCAN|BILL|${billNo}|${bill?.id || ''}|FM|${bill?.total || 0}`;
   const total = bill?.total ?? 317;
-  const storeName = bill?.stores?.name || bill?.store_name || 'FreshMart';
+  const storeName = bill?.stores?.name || bill?.store_name || 'SmartScan Store';
   const items = bill?.items || [];
   const status = bill?.status || 'BILL_ACTIVE';
 

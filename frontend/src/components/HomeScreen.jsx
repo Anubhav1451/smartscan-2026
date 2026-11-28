@@ -45,6 +45,28 @@ function SmartScanBrandMark({ className = "w-8 h-8" }) {
   );
 }
 
+// Dehradun 13 areas in defined order
+const DEHRADUN_AREAS = [
+  'Rajpur Road',
+  'Clement Town',
+  'Ballupur',
+  'Sahastradhara Road',
+  'GMS Road',
+  'Patel Nagar',
+  'ISBT',
+  'Prem Nagar',
+  'Raipur',
+  'Dalanwala',
+  'Vasant Vihar',
+  'EC Road',
+  'Subhash Nagar'
+];
+
+function normalizeArea(area) {
+  if (!area) return '';
+  return area.replace(/,\s*Dehradun$/i, '').trim();
+}
+
 export default function HomeScreen({ onNavigate }) {
   const { profile, signOut } = useAuth();
   const { selectStore, selectedStore, pendingStoreSwitch, confirmStoreSwitch, cancelStoreSwitch, cartCount } = useCart();
@@ -84,13 +106,14 @@ export default function HomeScreen({ onNavigate }) {
 
   const displayName = profile?.display_name || 'Anubhav';
 
-  // Distinct localities extracted from all loaded stores
-  const distinctAreas = useMemo(() => {
-    const areaSet = new Set();
+  // Store counts per normalized area
+  const areaCounts = useMemo(() => {
+    const counts = {};
     stores.forEach((s) => {
-      if (s.area) areaSet.add(s.area);
+      const norm = normalizeArea(s.area);
+      counts[norm] = (counts[norm] || 0) + 1;
     });
-    return Array.from(areaSet).sort((a, b) => a.localeCompare(b));
+    return counts;
   }, [stores]);
 
   // Demo stores (FM, SH, DN) pinned first; network stores sorted alphabetically by name
@@ -110,13 +133,16 @@ export default function HomeScreen({ onNavigate }) {
     const cleanQuery = searchQuery.trim().toLowerCase();
 
     return sorted.filter((store) => {
+      const storeNormArea = normalizeArea(store.area);
+
       // Area chip filter
-      const matchesArea = selectedArea === 'all' || store.area === selectedArea;
+      const matchesArea = selectedArea === 'all' || storeNormArea === selectedArea;
 
       // Live search filter by store name OR area
       const matchesQuery = !cleanQuery || 
         store.name.toLowerCase().includes(cleanQuery) || 
-        store.area.toLowerCase().includes(cleanQuery);
+        (store.area && store.area.toLowerCase().includes(cleanQuery)) ||
+        storeNormArea.toLowerCase().includes(cleanQuery);
 
       return matchesArea && matchesQuery;
     });
@@ -200,10 +226,10 @@ export default function HomeScreen({ onNavigate }) {
                 : 'bg-white text-ink-muted hover:text-ink border border-surface-tint hover:border-primary/40'
             }`}
           >
-            All
+            All ({stores.length})
           </button>
-          {distinctAreas.map((area) => {
-            const shortLabel = area.replace(/,\s*Dehradun$/i, '').trim();
+          {DEHRADUN_AREAS.map((area) => {
+            const count = areaCounts[area] || 0;
             const isSelected = selectedArea === area;
             return (
               <button
@@ -216,7 +242,7 @@ export default function HomeScreen({ onNavigate }) {
                     : 'bg-white text-ink-muted hover:text-ink border border-surface-tint hover:border-primary/40'
                 }`}
               >
-                {shortLabel}
+                {area} ({count})
               </button>
             );
           })}
@@ -229,7 +255,9 @@ export default function HomeScreen({ onNavigate }) {
             <span className="text-[11px] text-ink-muted font-medium">Tap to enter store</span>
           </div>
           <div className="text-xs text-ink-muted font-medium">
-            {sortedAndFilteredStores.length} {sortedAndFilteredStores.length === 1 ? 'store' : 'stores'} • {filteredAreasCount} {filteredAreasCount === 1 ? 'area' : 'areas'} • Dehradun
+            {selectedArea === 'all' && !searchQuery.trim()
+              ? `${stores.length || 103} stores - Dehradun`
+              : `${sortedAndFilteredStores.length} stores - Dehradun`}
           </div>
         </div>
 

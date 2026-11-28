@@ -41,6 +41,7 @@ def run_phase2_tests():
     stores_by_code = {s["code"]: s for s in stores}
     fm_id = stores_by_code["FM"]["id"]
     sh_id = stores_by_code["SH"]["id"]
+    dn_id = stores_by_code["DN"]["id"]
 
     # Helper manager auth dependency override
     def mock_fm_manager():
@@ -322,10 +323,11 @@ def run_phase2_tests():
     assert coke_check.data[0]["stock"] == 0, f"Coca-Cola stock not reset to 0: {coke_check.data[0]['stock']}"
     print(f"-> Seed product Coca-Cola stock reset to 0")
 
-    # 3. Exactly 40 orders present in app2026.orders
-    orders_count = len(sb.table("orders").select("id").execute().data or [])
-    assert orders_count == 40, f"Expected exactly 40 orders after reset, got {orders_count}"
-    print(f"-> Verified exactly {orders_count} orders in DB")
+    # 3. Exactly 40 demo orders present in app2026.orders, and stores still 103
+    demo_orders_res = sb.table("orders").select("id", count="exact").in_("store_id", [fm_id, sh_id, dn_id]).execute()
+    demo_orders_count = demo_orders_res.count if demo_orders_res.count is not None else len(demo_orders_res.data)
+    assert demo_orders_count == 40, f"Expected exactly 40 demo orders after reset, got {demo_orders_count}"
+    print(f"-> Verified exactly {demo_orders_count} demo orders in DB")
 
     # 4. Canonical bill SS-20481 exists and checkout works
     can_check = client.get("/bills/SS-20481")

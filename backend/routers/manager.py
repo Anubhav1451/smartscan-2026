@@ -723,8 +723,9 @@ def get_manager_store_dashboard(
 @router.post("/demo-reset", response_model=ResetDemoResponse)
 def reset_demo_data(user: Optional[UserProfile] = Depends(get_optional_user)):
     """
-    Reruns the seed for schema app2026.
-    Rule: Seed products are upserted; manager-added (custom) products survive; orders return to 40 seed orders.
+    Reruns the network-safe seed for schema app2026.
+    Rule: Scoped to the 3 demo stores ONLY. Network stores/products/orders are untouched.
+    Seed products are upserted; manager-added (custom) products in demo stores survive; demo orders return to exactly 40.
     """
     if user and user.role not in ("manager", "admin"):
         raise HTTPException(
@@ -734,13 +735,13 @@ def reset_demo_data(user: Optional[UserProfile] = Depends(get_optional_user)):
     seed.seed_database(preserve_custom_products=True)
     
     sb = get_supabase()
-    s_count = len(sb.table("stores").select("id").execute().data or [])
-    p_count = len(sb.table("products").select("id").execute().data or [])
-    o_count = len(sb.table("orders").select("id").execute().data or [])
+    s_count = sb.table("stores").select("id", count="exact").limit(1).execute().count or 0
+    p_count = sb.table("products").select("id", count="exact").limit(1).execute().count or 0
+    o_count = sb.table("orders").select("id", count="exact").limit(1).execute().count or 0
     
     return ResetDemoResponse(
         status="ok",
-        message="Demo state reset successfully. Custom manager products preserved.",
+        message="Demo state reset successfully. Network stores and custom manager products preserved.",
         canonical_bill="SS-20481",
         stores_count=s_count,
         products_count=p_count,

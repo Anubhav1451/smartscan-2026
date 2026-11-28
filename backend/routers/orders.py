@@ -22,9 +22,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Orders"])
 
 def generate_bill_no() -> str:
-    """Generates a bill number in SS-xxxxx format."""
-    num = random.randint(10000, 99999)
-    return f"SS-{num}"
+    """Generates a unique bill number in SS-xxxxx format."""
+    sb = get_supabase()
+    for _ in range(25):
+        num = random.randint(80000, 99999)
+        candidate = f"SS-{num}"
+        exists = sb.table("orders").select("id").eq("bill_no", candidate).limit(1).execute()
+        if not exists.data:
+            return candidate
+    return f"SS-{random.randint(80000, 99999)}"
 
 @router.post("/checkout", response_model=CheckoutResponse)
 def checkout(
@@ -166,6 +172,8 @@ def mock_pay(order_id: str):
             detail={"error": "Order not found", "code": "ORDER_NOT_FOUND"}
         )
     order = res.data[0]
+    store_info = sb.table("stores").select("name").eq("id", order["store_id"]).limit(1).execute()
+    store_name = store_info.data[0]["name"] if store_info.data else None
     
     # Fetch order items
     items_res = sb.table("order_items").select("product_id, barcode, name, price, qty").eq("order_id", order_id).execute()
@@ -191,6 +199,7 @@ def mock_pay(order_id: str):
             status=order["status"],
             payment_status=order["payment_status"],
             store_id=order["store_id"],
+            store_name=store_name,
             paid_at=order.get("paid_at") or datetime.now(timezone.utc).isoformat(),
             items=order_items_resp
         )
@@ -217,6 +226,9 @@ def mock_pay(order_id: str):
         )
         
     updated = update_res.data[0]
+    store_info = sb.table("stores").select("name").eq("id", updated["store_id"]).limit(1).execute()
+    store_name = store_info.data[0]["name"] if store_info.data else None
+
     return MockPayResponse(
         order_id=updated["id"],
         bill_no=updated["bill_no"],
@@ -225,6 +237,7 @@ def mock_pay(order_id: str):
         status=updated["status"],
         payment_status=updated["payment_status"],
         store_id=updated["store_id"],
+        store_name=store_name,
         paid_at=updated["paid_at"],
         items=order_items_resp
     )
